@@ -17,6 +17,26 @@ It is deliberately not a static chatbot. When a planned task is missed, it evalu
 - `lib/types.ts` — persisted quest, schedule, boss, subtask, and activity state.
 - `app/page.tsx` — UI and browser-local persistence (`localStorage`).
 
+## API-ready integration framework
+
+The demo deliberately keeps providers behind contracts, so an integration does
+not need to rewrite the UI or the agent loop.
+
+- `CalendarService` in `lib/calendar.ts`: implement `create` and `update`.
+  `MockCalendarService` is the default; `GoogleCalendarService` is ready for a
+  server-side OAuth access token.
+- `AiAgentProvider` in `lib/agent-contracts.ts`: implement `classify`,
+  `createPlan`, and `replan` with structured `RouterSchema` output. This is the
+  seam for OpenAI, Anthropic, or an internal API.
+
+The user flow is intentionally gated:
+
+`Goal -> plan preview -> user confirmation -> calendar adapter -> session report (start / partial / stuck / not started / complete) -> recovery plan`
+
+Calendar adapters must only be invoked after confirmation. The demo uses a
+deterministic planner while no provider is connected, so it remains testable
+without secrets.
+
 The MVP uses a reliable rule-based router/planner so its demo works without an API key. `RouterSchema` ensures structured classifier output. The service boundary makes an LLM router/planner swap-in straightforward; do not expose chain-of-thought—only concise activity summaries are displayed.
 
 ## Game system

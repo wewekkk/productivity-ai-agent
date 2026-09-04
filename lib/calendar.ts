@@ -9,7 +9,7 @@ export interface CalendarService {
 
 export class MockCalendarService implements CalendarService {
   readonly provider = "demo" as const;
-  async create(event: Omit<CalendarEvent, "id" | "provider">): Promise<CalendarEvent> { return { ...event, id: crypto.randomUUID(), provider: this.provider }; }
+  async create(event: Omit<CalendarEvent, "id" | "provider">): Promise<CalendarEvent> { return { ...event, id: globalThis.crypto?.randomUUID?.() ?? `event-${Date.now()}-${Math.random().toString(36).slice(2)}`, provider: this.provider }; }
   async update(event: CalendarEvent): Promise<CalendarEvent> { return event; }
 }
 

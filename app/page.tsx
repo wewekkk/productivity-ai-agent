@@ -1,29 +1,99 @@
 "use client";
-import { useEffect, useState } from "react";
-import { confirmPlan, createQuest, reportSession, rescueQuest, routeGoal } from "@/lib/agent";
-import type { Quest, Subtask } from "@/lib/types";
 
-type View = "today" | "quests" | "calendar" | "preview" | "detail" | "focus" | "result" | "recovery";
-type TodayItem = { quest: Quest; task: Subtask };
-const boss = `      .--.  .--.
-     :   \\__/   :
-      \\  o  o  /
-       \\   '  /
-        \\ -- /
-       /|    |\\`;
-const smallMonster = `  .-.\n (o o)\n | O |\n  '-'`;
-const fmt = (value?: string) => value ? new Intl.DateTimeFormat("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value)) : "—";
+import { useEffect, useMemo, useState } from "react";
+import {
+  confirmPlan,
+  createQuest,
+} from "@/lib/agent";
+import type { Quest, Subtask } from "@/lib/types";
+import { AsciiMonster } from "./components/AsciiMonster";
+import { CalendarView } from "./components/CalendarView";
+import { CompleteResult } from "./components/CompleteResult";
+import { BossDefeated } from "./components/BossDefeated";
+import type { QuestCompletionPresentation } from "./components/BossDefeated";
+import { FocusSession } from "./components/FocusSession";
+import type { FocusMode } from "./components/FocusSession";
+import { PlanPreview } from "./components/PlanPreview";
+import { QuestDetail } from "./components/QuestDetail";
+import { RecoveryPlan } from "./components/RecoveryPlan";
+import type { RecoveryTrigger } from "./components/RecoveryPlan";
+import { QuestsView } from "./components/QuestsView";
+import { HistoryView } from "./components/HistoryView";
+import { SessionReport } from "./components/SessionReport";
+import { SessionOutcomeResult } from "./components/SessionOutcomeResult";
+import type { Outcome } from "./components/SessionOutcomeResult";
+import { rescueFallbackPresentation } from "./rescue-presentation";
+import { noStartFallbackPresentation } from "./no-start-presentation";
+import { Card } from "./components/ui";
+import type { ActivityEntry, ActivityKind } from "./history-presentation";
+import "./today.css";
+import "./today-polish.css";
+import "./navigation.css";
+import "./ascii-monster.css";
+
+type MainView = "today" | "quests" | "calendar" | "history";
+type ActiveSession = { quest: Quest; subtask: Subtask; minutes: number; mode?: FocusMode; initialMode?: FocusMode };
+
+const time = (value: string) =>
+  new Intl.DateTimeFormat("zh-TW", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(value));
+
+const statusLabel = (status: Quest["status"]) =>
+  status === "SAFE" || status === "PERFECT" ? "安全" : status === "DANGER" ? "注意" : "危險";
 
 export default function Home() {
-  const [goal, setGoal] = useState(""); const [openInput, setOpenInput] = useState(false);
-  const [quests, setQuests] = useState<Quest[]>([]); const [activeId, setActiveId] = useState<string | null>(null);
-  const [view, setView] = useState<View>("today"); const [sessionId, setSessionId] = useState<string | null>(null);
-  useEffect(() => { const raw = localStorage.getItem("quest-agent-state"); if (!raw) return; const saved = JSON.parse(raw) as Quest | Quest[]; const list = (Array.isArray(saved) ? saved : [saved]).map((q) => ({ ...q, planState: q.planState ?? "confirmed" })); setQuests(list); setActiveId(list[0]?.id ?? null); }, []);
-  useEffect(() => { if (quests.length) localStorage.setItem("quest-agent-state", JSON.stringify(quests)); }, [quests]);
-  const quest = quests.find((q) => q.id === activeId) ?? null;
-  const updateQuest = (questId: string | null, fn: (q: Quest) => Quest) => setQuests((list) => list.map((q) => q.id === questId ? fn(q) : q));
-  const update = (fn: (q: Quest) => Quest) => updateQuest(activeId, fn);
-  const add = async () => {
+  const [quests, setQuests] = useState<Quest[]>([]);
+  const [goal, setGoal] = useState("");
+  const [isComposerOpen, setComposerOpen] = useState(false);
+  const [draft, setDraft] = useState<Quest | null>(null);
+  const [selectedQuest, setSelectedQuest] = useState<Quest | null>(null);
+  const [focusSession, setFocusSession] = useState<ActiveSession | null>(null);
+  const [reportSession, setReportSession] = useState<ActiveSession | null>(null);
+  const [completeResult, setCompleteResult] = useState<ActiveSession | null>(null);
+  const [bossDefeated, setBossDefeated] = useState<{ quest: Quest; completion: QuestCompletionPresentation } | null>(null);
+  const [outcomeResult, setOutcomeResult] = useState<(ActiveSession & { outcome: Outcome }) | null>(null);
+  const [recoveryPlan, setRecoveryPlan] = useState<(ActiveSession & { trigger: RecoveryTrigger }) | null>(null);
+  const [activityHistory, setActivityHistory] = useState<ActivityEntry[]>([]);
+  const [view, setView] = useState<MainView>("today");
+
+  useEffect(() => {
+    const saved = localStorage.getItem("quest-agent-state");
+    if (!saved) return;
+    const parsed = JSON.parse(saved);
+    setQuests(Array.isArray(parsed) ? parsed : [parsed]);
+  }, []);
+
+  useEffect(() => {
+    if (quests.length) localStorage.setItem("quest-agent-state", JSON.stringify(quests));
+  }, [quests]);
+
+  const scheduled = useMemo(
+    () =>
+      quests
+        .flatMap((quest) =>
+          quest.subtasks
+            .filter((subtask) => subtask.status !== "complete")
+            .map((subtask) => ({ quest, subtask })),
+        )
+        .sort((a, b) => +new Date(a.subtask.scheduledAt) - +new Date(b.subtask.scheduledAt)),
+    [quests],
+  );
+  const next = scheduled[0];
+  const nextStageNumber = next ? next.quest.subtasks.findIndex((subtask) => subtask.id === next.subtask.id) + 1 : 0;
+  const nextCompletedCount = next ? next.quest.subtasks.filter((subtask) => subtask.status === "complete").length : 0;
+  const todayItems = scheduled.filter(
+    ({ subtask }) => new Date(subtask.scheduledAt).toDateString() === new Date().toDateString(),
+  );
+  const defeatedBosses = useMemo(() => quests.filter((quest) => quest.subtasks.length > 0 && quest.subtasks.every((subtask) => subtask.status === "complete")).map((quest) => {
+    const entries = activityHistory.filter((entry) => entry.questId === quest.id);
+    const defeated = entries.find((entry) => entry.kind === "boss_defeated");
+    return { questId: quest.id, title: quest.title, completedAt: defeated?.at, sessionCount: quest.subtasks.length, totalDamage: entries.reduce((total, entry) => total + (entry.damage ?? 0), 0), xpEarned: defeated?.xp ?? quest.xp };
+  }), [activityHistory, quests]);
+
+  const createDraft = async () => {
   const trimmedGoal = goal.trim();
 
   if (!trimmedGoal) return;
@@ -45,42 +115,40 @@ export default function Home() {
 
     const data = await response.json();
 
-    const q = data.quest;
-    setQuests((list) => [...list, q]);
-    setActiveId(q.id);
-    setOpenInput(false);
-    setView("preview");
+    setDraft(data.quest);
   } catch (error) {
     console.error(
-      "Groq Agent 發生錯誤，改用本機規則式 Agent：",
+      "Groq Agent 發生錯誤，改用本機 Agent：",
       error,
     );
 
-    const q = createQuest(trimmedGoal);
-
-    setQuests((list) => [...list, q]);
-    setActiveId(q.id);
-    setOpenInput(false);
-    setView("preview");
+    setDraft(createQuest(trimmedGoal));
   }
+
+  setGoal("");
+  setComposerOpen(false);
 };
 
-  const confirmAndSync = async () => {
-  if (!quest) return;
+  const confirmDraftAndSync = async () => {
+  if (!draft) return;
 
   try {
-    const response = await fetch("/api/calendar/sync", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    const response = await fetch(
+      "/api/calendar/sync",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          events: draft.events,
+        }),
       },
-      body: JSON.stringify({
-        events: quest.events,
-      }),
-    });
+    );
 
     if (response.status === 401) {
-      window.location.href = "/api/auth/google";
+      window.location.href =
+        "/api/auth/google";
       return;
     }
 
@@ -88,26 +156,32 @@ export default function Home() {
 
     if (!response.ok) {
       throw new Error(
-        data.error ?? "Google Calendar 寫入失敗",
+        data.error ??
+          "Google Calendar 寫入失敗",
       );
     }
 
-    updateQuest(quest.id, (q) => {
-      const confirmed = confirmPlan(q);
+    const confirmed = confirmPlan(draft);
 
-      return {
-        ...confirmed,
-        events: data.events ?? confirmed.events,
-        activity: [
-          ...confirmed.activity,
-          "已同步至 Google Calendar",
-        ],
-        lastSignal:
-          "排程已確認並寫入 Google Calendar。",
-      };
-    });
+    const syncedQuest: Quest = {
+      ...confirmed,
+      events:
+        data.events ?? confirmed.events,
+      activity: [
+        ...confirmed.activity,
+        "已同步至 Google Calendar",
+      ],
+      lastSignal:
+        "排程已確認並寫入 Google Calendar。",
+    };
 
-    nav("today");
+    setQuests((current) => [
+      ...current,
+      syncedQuest,
+    ]);
+
+    setDraft(null);
+    setView("today");
   } catch (error) {
     console.error(
       "Google Calendar 同步失敗：",
@@ -120,28 +194,132 @@ export default function Home() {
   }
 };
 
-  const nextTask = (q = quest): Subtask | undefined => q?.subtasks.find((s) => ["planned", "in_progress", "partial"].includes(s.status));
-  const begin = (id: string) => { update((q) => reportSession(q, id, "start")); setSessionId(id); setView("focus"); };
-  const isToday = (value: string) => { const date = new Date(value), now = new Date(); return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate(); };
-  const allUpcoming: TodayItem[] = quests.filter((q) => q.planState === "confirmed").flatMap((q) => q.subtasks.filter((s) => ["planned", "in_progress", "partial"].includes(s.status)).map((task) => ({ quest: q, task }))).sort((a, b) => new Date(a.task.scheduledAt).getTime() - new Date(b.task.scheduledAt).getTime());
-  const todayItems = allUpcoming.filter((item) => isToday(item.task.scheduledAt));
-  const todayNext = todayItems[0] ?? allUpcoming[0];
-  const beginToday = (item: TodayItem) => { setActiveId(item.quest.id); updateQuest(item.quest.id, (q) => reportSession(q, item.task.id, "start")); setSessionId(item.task.id); setView("focus"); };
-  const result = (outcome: "complete" | "partial" | "stuck" | "missed") => { if (!sessionId) return; if (outcome === "stuck" || outcome === "missed") { setView("recovery"); return; } update((q) => reportSession(q, sessionId, outcome)); setView("result"); };
-  const activeTask = quest?.subtasks.find((s) => s.id === sessionId) ?? nextTask();
-  const nav = (next: View) => setView(next);
-  const isBoss = quest?.type === "complex_quest";
-  return <main>
-    <nav><button className="brand" onClick={() => nav("today")}>Quest Agent</button><div><button className={view === "today" ? "active" : ""} onClick={() => nav("today")}>今天</button><button className={view === "quests" || view === "detail" ? "active" : ""} onClick={() => nav("quests")}>任務</button><button className={view === "calendar" ? "active" : ""} onClick={() => nav("calendar")}>行事曆</button></div><aside><button className="new-task" onClick={() => { nav("today"); setOpenInput(true); }}>＋ 新增任務</button><span>Lv. {quest?.level ?? 3}<b>{quest?.xp ?? 0} / 600 XP</b></span></aside></nav>
-    {view === "today" && <section className="page today"><header><p>早安 ☀️</p><h1>慢慢來，我們先處理下一件。</h1><span>今天有 {todayItems.length} 個適合完成的工作階段。</span></header>{openInput ? <section className="add"><textarea autoFocus value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="例如：9/10 前完成統計報告，我星期三晚上沒空。"/><div><button className="secondary" onClick={() => setOpenInput(false)}>取消</button><button onClick={add}>交給 Agent →</button></div></section> : <button className="add-trigger" onClick={() => setOpenInput(true)}>＋ 告訴 Agent 你想做什麼</button>}{todayNext ? <section className="next card"><div><p className="label">下一個任務</p><h2>{todayNext.quest.title}</h2><span className="pill">{todayNext.quest.type === "complex_quest" ? "Boss Quest" : "小任務"} · {todayNext.quest.status}</span><div className="hp"><i style={{ width: `${todayNext.quest.bossHp}%` }}/></div><b>{todayNext.quest.bossHp} / 100 HP</b><h3>{todayNext.task.title}</h3><p>{fmt(todayNext.task.scheduledAt)} · {todayNext.task.minutes} 分鐘 · {todayNext.task.damage} Damage</p><button onClick={() => beginToday(todayNext)}>開始這一關</button><button className="secondary" onClick={() => beginToday(todayNext)}>先做 3 分鐘</button><small>{todayNext.quest.constraints[0] ?? "Agent 已保留緩衝時間，讓你不必趕工。"}</small></div><pre className="ascii-monster">{todayNext.quest.type === "complex_quest" ? boss : smallMonster}</pre></section> : <section className="card empty">目前沒有已確認的工作階段。先告訴 Agent 你的目標吧。</section>}<section className="calendar-mini card"><h2>今天</h2>{todayItems.map((item) => <p key={item.task.id}><time>{fmt(item.task.scheduledAt)}</time><b>{item.task.title}<small> · {item.quest.title}</small></b></p>)}{todayItems.length === 0 && <p>今天沒有 Agent 排程。</p>}<button className="text" onClick={() => nav("calendar")}>查看完整行事曆 →</button></section></section>}
-    {view === "preview" && quest && <section className="page preview"><button className="text" onClick={() => nav("today")}>← 返回</button><div className="preview-grid"><article><p className="label">排程預覽</p><h1>{quest.title}</h1><p>截止時間：{fmt(quest.deadline)}</p><pre className="ascii-monster">{isBoss ? boss : smallMonster}</pre><h2>Agent 理解到：</h2><ul>{quest.constraints.length ? quest.constraints.map((x) => <li key={x}>{x}</li>) : <li>這個目標需要安排專注時段與緩衝。</li>}<li>{routeGoal(quest.source).reason}</li></ul><h2>任務拆解</h2>{quest.subtasks.map((s, i) => <div className="breakdown" key={s.id}><b>{i + 1}. {s.title}</b><span>{fmt(s.scheduledAt)} · {s.minutes} 分鐘 · {s.damage} DMG</span></div>)}<div className="routes"><div><b>理想完成</b><strong>{fmt(quest.safeFinish)}</strong><span>這是實際排入 Calendar 的路線。</span></div><div><b>安全備用線</b><strong>{fmt(quest.criticalDeadline)}</strong><span>延誤時 Agent 才會啟用，不會直接寫入 Calendar。</span></div></div><footer><button onClick={confirmAndSync}>
-  確認這個排程
-</button><button className="secondary" onClick={() => update((q) => ({ ...q, lastSignal: "Agent 已記下：請讓這個計畫更輕鬆。" }))}>再輕鬆一點</button><button className="secondary" onClick={() => update((q) => ({ ...q, lastSignal: "Agent 已記下：請讓工作階段更集中。" }))}>再集中一點</button></footer></article><aside className="calendar-preview"><h2>排程放在哪裡？</h2>{quest.events.map((e) => <div key={e.id}><time>{fmt(e.start)}</time><b>{e.title}</b><span>{Math.round((new Date(e.end).getTime()-new Date(e.start).getTime())/60000)} 分鐘</span></div>)}</aside></div></section>}
-    {view === "quests" && <section className="page"><header><p>我的任務</p><h1>進行中的 Quest</h1></header><div className="quest-list">{quests.map((q) => <button className="quest-card" key={q.id} onClick={() => { setActiveId(q.id); nav(q.planState === "preview" ? "preview" : "detail"); }}><pre className="ascii-monster card-monster">{q.type === "complex_quest" ? boss : smallMonster}</pre><span>{q.type === "complex_quest" ? "Boss Quest" : "小任務"}</span><h2>{q.title}</h2><div className="hp"><i style={{ width: `${q.bossHp}%` }}/></div><b>{q.bossHp}/100 HP · {q.status}</b></button>)}</div></section>}
-    {view === "calendar" && <section className="page"><header><p>行事曆</p><h1>Agent 安排的工作時段</h1><span>暖橘色區塊代表 Agent Session；安全備用線不會顯示在這裡。</span></header><section className="week card">{(quest?.events ?? []).map((e) => <div key={e.id}><time>{fmt(e.start)}</time><b>{e.title}</b><span>Agent Session</span></div>)}</section></section>}
-    {view === "detail" && quest && <section className="page detail"><button className="text" onClick={() => nav("quests")}>← 任務</button><section className="detail-head card"><pre className="ascii-monster">{isBoss ? boss : smallMonster}</pre><div><p className="label">{isBoss ? "Boss Quest" : "小任務"}</p><h1>{quest.title}</h1><div className="hp"><i style={{ width: `${quest.bossHp}%` }}/></div><b>{quest.bossHp} / 100 HP · {quest.status}</b><p>Deadline {fmt(quest.deadline)}　理想完成 {fmt(quest.safeFinish)}　緩衝 {quest.bufferHours} 小時</p></div></section>{nextTask() && <section className="next card"><div><p className="label">下一個工作階段</p><h2>{nextTask()!.title}</h2><p>{fmt(nextTask()!.scheduledAt)} · {nextTask()!.minutes} 分鐘 · {nextTask()!.damage} Damage</p><button onClick={() => begin(nextTask()!.id)}>開始</button></div></section>}<section className="card"><h2>後續 Session</h2>{quest.subtasks.filter((s) => s.id !== nextTask()?.id).map((s, i) => <p className="line" key={s.id}>{i + 2}. <b>{s.title}</b><span>{fmt(s.scheduledAt)} · {s.minutes} 分鐘</span></p>)}</section><section className="why card"><h2>Agent 為什麼這樣安排？</h2><p>{quest.constraints[0] ?? "我把需要專注的內容分散到不同時段，並保留緩衝。"}</p><p>如果前面的 Session 延誤，我會重新計算後面的安排。</p></section></section>}
-    {view === "focus" && quest && activeTask && <section className="focus"><button className="text" onClick={() => nav("detail")}>← 返回任務</button><button className="exit" onClick={() => nav("detail")}>× 離開</button><p>{quest.title} · 第 {quest.subtasks.findIndex((s) => s.id === activeTask.id)+1}/{quest.subtasks.length} 關</p><pre className="ascii-monster">{isBoss ? boss : smallMonster}</pre><h1>{activeTask.title}</h1><strong>{activeTask.minutes}:00</strong><h2>本回合目標</h2><p>完成這一小段即可；不用把整個 Quest 一次做完。</p><h2>最低勝利條件</h2><p>先完成一個最小、可繼續的下一步。</p><button onClick={() => result("complete")}>結束並回報</button><div><button className="secondary" onClick={() => result("stuck")}>我卡住了</button><button className="secondary" onClick={() => result("partial")}>我有做一些</button></div></section>}
-    {view === "result" && quest && <section className="page result"><p className="label">這一關進行得怎麼樣？</p><h1>⚔ HIT!</h1><strong>{activeTask?.damage ?? 0} DAMAGE</strong><p>Boss HP {Math.min(100, quest.bossHp + (activeTask?.damage ?? 0))} → {quest.bossHp}</p><p>+{activeTask?.damage ?? 0} XP</p><button onClick={() => nav("today")}>回到今天</button><button className="secondary" onClick={() => nav("detail")}>查看 Quest</button></section>}
-    {view === "recovery" && quest && <section className="page recovery"><p className="label">救援模式</p><h1>我幫你重新算了一次。</h1><p>這一關沒有按照原計畫完成，但 Agent 會先保護你的節奏，再安排下一步。</p><section className="card"><b>緩衝時間</b><h2>{quest.bufferHours} 小時 → {Math.max(0, quest.bufferHours - 12)} 小時</h2><p>Boss 進入警戒狀態，但不會扣除永久 XP。</p></section><button onClick={() => { if (sessionId) update((q) => rescueQuest(q, sessionId, "卡住或未開始")); nav("detail"); }}>接受新的安排</button><button className="secondary" onClick={() => nav("detail")}>自己調整</button></section>}
-  </main>;
+  const openFocus = (quest: Quest, subtask: Subtask, minutes: number, initialMode?: FocusMode) => setFocusSession({ quest, subtask, minutes, initialMode });
+  const openReport = (quest: Quest, subtask: Subtask) => setReportSession({ quest, subtask, minutes: subtask.minutes });
+  const nextDemoSession = (session: ActiveSession) => session.quest.subtasks.find((subtask) => subtask.status !== "complete");
+  const recordActivity = (session: ActiveSession, kind: ActivityKind, details: Pick<ActivityEntry, "damage" | "xp" | "agentAction"> = {}) => {
+    setActivityHistory((current) => [...current, { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, at: new Date().toISOString(), questId: session.quest.id, questTitle: session.quest.title, sessionTitle: session.subtask.title, kind, ...details }]);
+  };
+  const finishDemoSession = (session: ActiveSession) => {
+    const updatedQuest: Quest = {
+      ...session.quest,
+      bossHp: Math.max(0, session.quest.bossHp - session.subtask.damage),
+      subtasks: session.quest.subtasks.map((subtask) => subtask.id === session.subtask.id ? { ...subtask, status: "complete" } : subtask),
+    };
+    const updatedSession: ActiveSession = { ...session, quest: updatedQuest, subtask: { ...session.subtask, status: "complete" } };
+    setQuests((current) => current.map((quest) => quest.id === updatedQuest.id ? updatedQuest : quest));
+    setSelectedQuest((current) => current?.id === updatedQuest.id ? updatedQuest : current);
+    const hasNext = updatedQuest.subtasks.some((subtask) => subtask.status !== "complete");
+    recordActivity(updatedSession, "completed", { damage: session.subtask.damage, xp: session.quest.xp || 30 });
+    if (hasNext) setCompleteResult(updatedSession);
+    else {
+      recordActivity(updatedSession, "boss_defeated", { xp: session.quest.xp || 120, agentAction: "已完成所有工作階段" });
+      setBossDefeated({ quest: updatedQuest, completion: { isQuestComplete: true, remainingHp: 0, xpEarned: session.quest.xp || 120 } });
+    }
+  };
+
+  if (draft) {
+  return (
+    <PlanPreview
+      quest={draft}
+      onBack={() => {
+        setDraft(null);
+        setView("today");
+      }}
+      onConfirm={confirmDraftAndSync}
+    />
+  );
+}
+
+  if (focusSession) {
+    return <FocusSession quest={focusSession.quest} subtask={focusSession.subtask} initialMinutes={focusSession.minutes} initialMode={focusSession.initialMode} onBack={() => setFocusSession(null)} onReport={(mode) => { setFocusSession(null); setReportSession({ ...focusSession, mode }); }} onComplete={() => { setFocusSession(null); finishDemoSession(focusSession); }} onRescueComplete={() => { recordActivity(focusSession, "rescue", { damage: 5, agentAction: "已重新整理剩餘工作" }); setFocusSession(null); setOutcomeResult({ ...focusSession, outcome: "rescue" }); }} />;
+  }
+
+  if (completeResult) {
+    return <CompleteResult quest={completeResult.quest} subtask={completeResult.subtask} nextSession={nextDemoSession(completeResult)} onStartNext={() => { const next = nextDemoSession(completeResult); if (next) { setFocusSession({ quest: completeResult.quest, subtask: next, minutes: next.minutes }); setCompleteResult(null); } }} onToday={() => { setCompleteResult(null); setSelectedQuest(null); setView("today"); }} onQuest={() => { setSelectedQuest(completeResult.quest); setCompleteResult(null); setView("quests"); }} />;
+  }
+
+  if (bossDefeated) {
+    return <BossDefeated quest={bossDefeated.quest} completion={bossDefeated.completion} onToday={() => { setBossDefeated(null); setSelectedQuest(null); setView("today"); }} onQuest={() => { setSelectedQuest(bossDefeated.quest); setBossDefeated(null); setView("quests"); }} />;
+  }
+
+  if (outcomeResult) {
+    return <SessionOutcomeResult quest={outcomeResult.quest} subtask={outcomeResult.subtask} outcome={outcomeResult.outcome} damage={outcomeResult.outcome === "partial" && outcomeResult.mode === "quick" ? 3 : undefined} rescuePresentation={outcomeResult.outcome === "rescue" ? rescueFallbackPresentation : undefined} noStartPresentation={outcomeResult.outcome === "missed" ? noStartFallbackPresentation : undefined} onBack={() => { setSelectedQuest(outcomeResult.quest); setOutcomeResult(null); setView("quests"); }} onRecovery={() => { setRecoveryPlan({ ...outcomeResult, trigger: outcomeResult.outcome === "missed" ? "missed" : outcomeResult.outcome === "stuck" || outcomeResult.outcome === "rescue" ? "stuck" : "partial" }); setOutcomeResult(null); }} onRescue={() => { setFocusSession({ ...outcomeResult, minutes: 5, initialMode: "rescue" }); setOutcomeResult(null); }} onRecommendedAction={(action) => { setFocusSession({ ...outcomeResult, subtask: { ...outcomeResult.subtask, title: action.nextFocus.title, minutes: action.nextFocus.estimatedMinutes }, minutes: action.nextFocus.estimatedMinutes, initialMode: "normal" }); setOutcomeResult(null); }} onNoStartAction={(action) => { setFocusSession({ ...outcomeResult, minutes: action.focus.estimatedMinutes, initialMode: action.focus.mode }); setOutcomeResult(null); }} />;
+  }
+
+  if (recoveryPlan) {
+    return <RecoveryPlan quest={recoveryPlan.quest} subtask={recoveryPlan.subtask} trigger={recoveryPlan.trigger} onBack={() => { setSelectedQuest(recoveryPlan.quest); setRecoveryPlan(null); setView("quests"); }} onAccept={() => { recordActivity(recoveryPlan, "replan", { agentAction: "使用者接受新的安排提案" }); setSelectedQuest(recoveryPlan.quest); setRecoveryPlan(null); setView("quests"); }} />;
+  }
+
+  if (reportSession) {
+    return <SessionReport quest={reportSession.quest} subtask={reportSession.subtask} onBack={() => setReportSession(null)} onComplete={() => { finishDemoSession(reportSession); setReportSession(null); }} onPartial={() => { recordActivity(reportSession, "partial", { damage: reportSession.mode === "quick" ? 3 : 8 }); setOutcomeResult({ ...reportSession, outcome: "partial" }); setReportSession(null); }} onStuck={() => { recordActivity(reportSession, "stuck", { damage: 4 }); setOutcomeResult({ ...reportSession, outcome: "stuck" }); setReportSession(null); }} onMissed={() => { recordActivity(reportSession, "missed", { damage: 0 }); setOutcomeResult({ ...reportSession, outcome: "missed" }); setReportSession(null); }} />;
+  }
+
+  if (selectedQuest) {
+    return <QuestDetail quest={selectedQuest} history={activityHistory} isCompleted={selectedQuest.subtasks.length > 0 && selectedQuest.subtasks.every((subtask) => subtask.status === "complete")} onBack={() => { setSelectedQuest(null); setView("quests"); }} onStart={(subtask) => openFocus(selectedQuest, subtask, subtask.minutes)} onQuickStart={(subtask) => openFocus(selectedQuest, subtask, 3)} onReport={(subtask) => openReport(selectedQuest, subtask)} />;
+  }
+
+  return (
+    <main className="today-shell">
+      <nav className="top-nav" aria-label="主要導覽">
+        <b>Quest Agent</b>
+        <div className="nav-tabs">
+          <button className={view === "today" ? "nav-active" : ""} onClick={() => setView("today")}>今天</button>
+          <button className={view === "quests" ? "nav-active" : ""} onClick={() => setView("quests")}>任務</button>
+          <button className={view === "calendar" ? "nav-active" : ""} onClick={() => setView("calendar")}>行事曆</button>
+          <button className={view === "history" ? "nav-active" : ""} onClick={() => setView("history")}>紀錄</button>
+        </div>
+        <span>Lv. 3<strong>420 / 600 XP</strong></span>
+      </nav>
+
+      {view === "today" && (
+        <section className="today-page">
+          <header>
+            <p>早安 ☀️</p>
+            <h1>今天先完成眼前這一關。</h1>
+            <small>還有 {scheduled.length} 個安排，Agent 會幫你顧著。</small>
+          </header>
+
+          {next ? (
+            <Card className="next-quest compact">
+              <div className="next-copy">
+                <p className="eyebrow">下一關 · 第 {nextStageNumber} / {next.quest.subtasks.length} 關</p>
+                <h2>{next.quest.title}</h2>
+                <span className={`quest-status ${next.quest.status.toLowerCase()}`}>{statusLabel(next.quest.status)}</span>
+                <div className="hp"><i style={{ width: `${next.quest.bossHp}%` }} /></div>
+                <b>{next.quest.bossHp} / 100 HP · 已完成 {nextCompletedCount} / {next.quest.subtasks.length}</b>
+                <h3>{next.subtask.title}</h3>
+                <p>今天 {time(next.subtask.scheduledAt)} · {next.subtask.minutes} 分鐘 · {next.subtask.damage} DMG</p>
+                <div className="actions"><button onClick={() => openFocus(next.quest, next.subtask, next.subtask.minutes)}>開始這一關</button><button className="soft" onClick={() => openFocus(next.quest, next.subtask, 3)}>先做 3 分鐘</button><button className="text" onClick={() => openReport(next.quest, next.subtask)}>直接回報進度</button></div>
+              </div>
+              <div className="monster-wrap"><AsciiMonster state="normal" /><small>CV BOSS</small></div>
+            </Card>
+          ) : (
+            <Card className="next-quest empty-next"><AsciiMonster state="normal" /><div><p className="eyebrow">下一關</p><h2>今天還沒有安排任務</h2><p>告訴 Agent 你想完成什麼，我們一起找出第一步。</p></div></Card>
+          )}
+
+          <section className="add-task">
+            <button onClick={() => setComposerOpen((open) => !open)}>＋ 告訴 Agent 你想完成什麼</button>
+            {isComposerOpen && <div><textarea value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="例如：9/10 前完成統計報告，我星期三晚上沒空。" /><button onClick={createDraft}>交給 Agent →</button></div>}
+          </section>
+
+          <section className="today-grid">
+            <Card className="calendar-grid">
+              <p className="eyebrow">今天的行事曆</p>
+              {todayItems.length ? todayItems.map(({ quest, subtask }) => <p className="event agent" key={subtask.id}><time>{time(subtask.scheduledAt)}</time><span><b>{subtask.title}</b><small>{quest.title} · {subtask.minutes} 分鐘</small></span></p>) : <p className="calendar-empty">今天暫時沒有 Agent 安排的工作階段。</p>}
+            </Card>
+            <section className="quest-side">
+              <p className="eyebrow">目前 Quest 摘要</p>
+              {quests.slice(0, 2).map((quest) => <Card className="compact-quest" key={quest.id}><AsciiMonster state="normal" /><div><b>{quest.title}</b><div className="hp"><i style={{ width: `${quest.bossHp}%` }} /></div><small>{quest.bossHp} / 100 HP · 已完成 {quest.subtasks.filter((subtask) => subtask.status === "complete").length} / {quest.subtasks.length} · {statusLabel(quest.status)}</small></div></Card>)}
+              <button className="view-all" onClick={() => setView("quests")}>查看所有任務 →</button>
+            </section>
+          </section>
+        </section>
+      )}
+
+      {view === "quests" && <QuestsView quests={quests} onSelect={setSelectedQuest} onCreate={() => { setView("today"); setComposerOpen(true); }} onViewHistory={() => setView("history")} />}
+      {view === "calendar" && <CalendarView quests={quests} onSelect={setSelectedQuest} />}
+      {view === "history" && <HistoryView entries={activityHistory} defeatedBosses={defeatedBosses} onSelectBoss={(questId) => { const quest = quests.find((item) => item.id === questId); if (quest) setSelectedQuest(quest); }} />}
+    </main>
+  );
 }

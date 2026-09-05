@@ -1,7 +1,9 @@
 import Groq from "groq-sdk";
+import { z } from "zod";
 
 import type { AiAgentProvider } from "./agent-contracts";
 import {
+  createQuest,
   RouterSchema,
   type RouterDecision,
 } from "./agent";
@@ -9,6 +11,17 @@ import type { Quest } from "./types";
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
+});
+
+const GroqPlanSchema = z.object({
+  title: z.string(),
+  subtasks: z.array(
+    z.object({
+      title: z.string(),
+      minutes: z.number().int().min(15).max(90),
+    }),
+  ).length(4),
+  reason: z.string(),
 });
 
 export class GroqAgentProvider implements AiAgentProvider {
@@ -196,13 +209,150 @@ fixed_event、simple_task、complex_quest。
   }
 
   async createPlan(
-    _goal: string,
-    _decision: RouterDecision,
-  ): Promise<Quest> {
-    throw new Error(
-      "createPlan 尚未實作",
-    );
+  goal: string,
+  decision: RouterDecision,
+): Promise<Quest> {
+  const baseQuest = createQuest(goal, decision);
+
+  if (decision.type !== "complex_quest") {
+    return baseQuest;
   }
+
+  const completion = await groq.chat.completions.create({
+    model: "openai/gpt-oss-20b",
+
+    messages: [
+      {
+        role: "system",
+        content: `
+你是 Productivity Quest Agent 的任務規劃器。
+
+請將使用者的複雜目標拆成剛好 4 個可以實際執行的工作階段。
+
+規則：
+- 每個工作階段必須具體、可執行。
+- 順序必須符合完成目標的合理流程。
+- 每個工作階段時間介於 15 到 90 分鐘。
+- 不要產生籠統名稱，例如「開始做」、「繼續處理」。
+- title 要是一個簡短的任務名稱。
+- reason 使用繁體中文簡短說明拆解邏輯。
+- 只能按照指定 JSON Schema 回傳。
+        `.trim(),
+      },
+      {
+        role: "user",
+        content: `
+目標：
+${goal}
+
+截止日期：
+${decision.deadline ?? "沒有指定"}
+
+限制：
+${decision.constraints.length > 0
+  ? decision.constraints.join("、")
+  : "沒有特殊限制"}
+        `.trim(),
+      },
+    ],
+
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "quest_plan",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: {
+            title: {
+              type: "string",
+            },
+            subtasks: {
+              type: "array",
+              minItems: 4,
+              maxItems: 4,
+              items: {
+                type: "object",
+                properties: {
+                  title: {
+                    type: "string",
+                  },
+                  minutes: {
+                    type: "integer",
+                    minimum: 15,
+                    maximum: 90,
+                  },
+                },
+                required: [
+                  "title",
+                  "minutes",
+                ],
+                additionalProperties: false,
+              },
+            },
+            reason: {
+              type: "string",
+            },
+          },
+          required: [
+            "title",
+            "subtasks",
+            "reason",
+          ],
+          additionalProperties: false,
+        },
+      },
+    },
+
+    temperature: 0,
+  });
+
+  const content =
+    completion.choices[0]?.message?.content;
+
+  if (!content) {
+    throw new Error("Groq 沒有回傳計畫");
+  }
+
+  const plan = GroqPlanSchema.parse(
+    JSON.parse(content),
+  );
+
+  const subtasks = baseQuest.subtasks.map(
+    (task, index) => ({
+      ...task,
+      title: plan.subtasks[index].title,
+      minutes: plan.subtasks[index].minutes,
+    }),
+  );
+
+  const events = baseQuest.events.map(
+    (event, index) => {
+      const task = subtasks[index];
+
+      return {
+        ...event,
+        title: task.title,
+        end: new Date(
+          new Date(task.scheduledAt).getTime() +
+            task.minutes * 60_000,
+        ).toISOString(),
+      };
+    },
+  );
+
+  return {
+    ...baseQuest,
+    title: plan.title,
+    subtasks,
+    events,
+    activity: [
+      ...baseQuest.activity,
+      "Groq 已依照目標動態產生任務拆解",
+    ],
+    lastSignal: plan.reason,
+  };
+}
 
   async replan(
     _quest: Quest,

@@ -45,11 +45,7 @@ export default function Home() {
 
     const data = await response.json();
 
-    const q = createQuest(
-      trimmedGoal,
-      data.decision,
-    );
-
+    const q = data.quest;
     setQuests((list) => [...list, q]);
     setActiveId(q.id);
     setOpenInput(false);

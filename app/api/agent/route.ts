@@ -24,13 +24,21 @@ export async function POST(request: Request) {
       );
     }
 
+    const trimmedGoal = goal.trim();
+
     const decision = await agent.classify(
-      goal.trim(),
-    );
+  trimmedGoal,
+);
+
+    const quest = await agent.createPlan(
+  trimmedGoal,
+  decision,
+);
 
     return NextResponse.json({
-      decision,
-    });
+  decision,
+  quest,
+});
   } catch (error) {
     console.error(
       "Groq Agent API error:",

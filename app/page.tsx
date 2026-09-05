@@ -23,7 +23,51 @@ export default function Home() {
   const quest = quests.find((q) => q.id === activeId) ?? null;
   const updateQuest = (questId: string | null, fn: (q: Quest) => Quest) => setQuests((list) => list.map((q) => q.id === questId ? fn(q) : q));
   const update = (fn: (q: Quest) => Quest) => updateQuest(activeId, fn);
-  const add = () => { if (!goal.trim()) return; const q = createQuest(goal); setQuests((list) => [...list, q]); setActiveId(q.id); setOpenInput(false); setView("preview"); };
+  const add = async () => {
+  const trimmedGoal = goal.trim();
+
+  if (!trimmedGoal) return;
+
+  try {
+    const response = await fetch("/api/agent", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        goal: trimmedGoal,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Groq Agent API 呼叫失敗");
+    }
+
+    const data = await response.json();
+
+    const q = createQuest(
+      trimmedGoal,
+      data.decision,
+    );
+
+    setQuests((list) => [...list, q]);
+    setActiveId(q.id);
+    setOpenInput(false);
+    setView("preview");
+  } catch (error) {
+    console.error(
+      "Groq Agent 發生錯誤，改用本機規則式 Agent：",
+      error,
+    );
+
+    const q = createQuest(trimmedGoal);
+
+    setQuests((list) => [...list, q]);
+    setActiveId(q.id);
+    setOpenInput(false);
+    setView("preview");
+  }
+};
   const nextTask = (q = quest): Subtask | undefined => q?.subtasks.find((s) => ["planned", "in_progress", "partial"].includes(s.status));
   const begin = (id: string) => { update((q) => reportSession(q, id, "start")); setSessionId(id); setView("focus"); };
   const isToday = (value: string) => { const date = new Date(value), now = new Date(); return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate(); };

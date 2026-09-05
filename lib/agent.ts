@@ -19,11 +19,17 @@ export function routeGoal(input: string): RouterDecision {
   return RouterSchema.parse({ type: "simple_task", planningRequired: true, breakdownRequired: false, gamify: true, deadline, constraints, reason: "這可在單一專注時段完成。" });
 }
 
-export function createQuest(input: string): Quest {
-  const decision = routeGoal(input); const id = uid();
+export function createQuest(
+  input: string,
+  decisionOverride?: RouterDecision,
+): Quest {
+  const decision = decisionOverride ?? routeGoal(input);
+  const id = uid();
   if (decision.type === "fixed_event") { const start = slot(1, 12); return { id, title: input, source: input, type: decision.type, planState: "preview", deadline: iso(start), bufferHours: 0, status: "SAFE", bossHp: 0, xp: 0, level: 1, constraints: decision.constraints, subtasks: [], events: [{ id: uid(), title: input, start: iso(start), end: iso(new Date(start.getTime() + 3_600_000)), provider: "demo" }], activity: ["已理解目標", "偵測為固定事件", "已建立行事曆草案"], lastSignal: "請確認後才會寫入行事曆。" }; }
   if (decision.type === "simple_task") { const item = task(input, 30, 100, slot(1, 10)); return { id, title: input, source: input, type: decision.type, planState: "preview", deadline: decision.deadline, bufferHours: 12, status: "SAFE", bossHp: 100, xp: 0, level: 1, constraints: decision.constraints, subtasks: [item], events: [eventFor(item)], activity: ["已理解目標", "偵測為簡單任務", "已產生排程草案"], lastSignal: "先確認排程，再開始第一回合。" }; }
-  const tired = decision.constraints.length > 0; const tasks = [task("整理經歷與成就", tired ? 30 : 40, 20, slot(0, tired ? 19 : 17)), task("撰寫履歷初稿", 60, 40, slot(1, 10)), task("潤飾結構與文字", 45, 25, slot(1, 15)), task("最終檢查與匯出", 30, 15, slot(2, 10))]; const deadline = deadlineFrom(input); const safe = new Date(deadline.getTime() - 86_400_000); const buffer = Math.max(0, Math.round((deadline.getTime() - new Date(tasks.at(-1)!.scheduledAt).getTime()) / 3_600_000));
+  const tired = decision.constraints.length > 0; const tasks = [task("整理經歷與成就", tired ? 30 : 40, 20, slot(0, tired ? 19 : 17)), task("撰寫履歷初稿", 60, 40, slot(1, 10)), task("潤飾結構與文字", 45, 25, slot(1, 15)), task("最終檢查與匯出", 30, 15, slot(2, 10))]; const deadline = decision.deadline
+  ? new Date(decision.deadline)
+  : deadlineFrom(input); const safe = new Date(deadline.getTime() - 86_400_000); const buffer = Math.max(0, Math.round((deadline.getTime() - new Date(tasks.at(-1)!.scheduledAt).getTime()) / 3_600_000));
   return { id, title: "完成交換履歷", source: input, type: decision.type, planState: "preview", deadline: iso(deadline), safeFinish: iso(safe), criticalDeadline: iso(deadline), bufferHours: buffer || 24, status: "SAFE", bossHp: 100, xp: 0, level: 3, constraints: decision.constraints, subtasks: tasks, events: tasks.map(eventFor), activity: ["已理解目標", "偵測為複雜 Quest", "已生成 4 個子任務", "已計算安全完成線與緩衝", "已建立排程預覽"], lastSignal: "先確認排程；確認前，Agent 不會對 Calendar 執行寫入。" };
 }
 

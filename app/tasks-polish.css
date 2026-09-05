@@ -1,0 +1,1 @@
+.quest-view-header{display:flex;justify-content:space-between;align-items:center;gap:16px}.quest-view-header .section-tabs{flex:1}.completed-link{white-space:nowrap}@media(max-width:560px){.quest-view-header{align-items:flex-start;flex-direction:column;gap:0}.completed-link{margin:-10px 0 14px auto}}

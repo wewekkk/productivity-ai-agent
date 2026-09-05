@@ -37,7 +37,7 @@ export function PlanPreview({ quest, onBack, onConfirm, onAdjustment }: { quest:
     <button className="text" onClick={onBack}>← 返回今天</button>
     <h1>排程預覽</h1><p>Agent 已經替你整理好一條可行路線，確認後才會加入行事曆。</p>
     <div className="proposal"><article>
-      <div className="preview-title"><div><h2>{quest.title}</h2><p>Boss Quest · 截止時間：{time(quest.deadline)}</p></div><AsciiMonster variant="boss" /></div>
+      <div className="preview-title"><div><h2>{quest.title}</h2><p>Boss Quest · 截止時間：{time(quest.deadline)}</p></div><AsciiMonster state="normal" /></div>
       <Card className="understanding"><b>Agent 理解到</b><ul>{constraints.map((constraint) => <li key={constraint}>{constraint}</li>)}</ul></Card>
       <h2>任務拆解</h2>{quest.subtasks.map((subtask, index) => <div className="step" key={subtask.id}><b>{stepNumbers[index] ?? `${index + 1}.`} {subtask.title}</b><span>{time(subtask.scheduledAt)} · {subtask.minutes} 分鐘 <small>{subtask.damage} DMG</small></span></div>)}
       <div className="route-cards"><Card className="ideal"><b>理想完成</b><strong>{time(quest.safeFinish)}</strong><p>這是 Agent 建議實際放入行事曆的安排。</p></Card><Card className="safe"><b>安全備用線</b><strong>{time(quest.criticalDeadline)}</strong><p>如果前面的 Session 延誤，Agent 還保留一條備用路線。</p></Card></div>

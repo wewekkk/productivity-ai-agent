@@ -1,26 +1,23 @@
-type Props = { variant?: "boss" | "small" | "warning" | "hurt"; className?: string };
+type MonsterState = "normal" | "hurt" | "defeated";
+type Props = { state?: MonsterState; className?: string };
 
 const art = {
-  boss: `      .--.  .--.
+  normal: `      .--.  .--.
      :   \\__/   :
       \\  6  6  /
        \\   '  /
         \\ -- /
        /|    |\\`,
-  small: `  .-.
- (o o)
- | O |
-  '-'`,
-  warning: `   .-""-.
-  / >  < \\
- |   ^    |
-  \\  --  /`,
   hurt: `      .--.  .--.
      :   \\__/   :
       \\  > <   /
        \\  T   /
         \\ -- /
        /|    |\\`,
+  defeated: `      .--.  .--.
+     :   x__x   :
+      \\        /
+       '------'`,
 };
 
 function dedentAscii(value: string) {
@@ -30,6 +27,6 @@ function dedentAscii(value: string) {
   return lines.map((line) => line.slice(indent)).join("\n");
 }
 
-export function AsciiMonster({ variant = "boss", className = "" }: Props) {
-  return <pre className={`ascii-monster ${className}`}>{dedentAscii(art[variant])}</pre>;
+export function AsciiMonster({ state = "normal", className = "" }: Props) {
+  return <pre className={`ascii-monster ${className}`}>{dedentAscii(art[state])}</pre>;
 }

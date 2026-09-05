@@ -81,6 +81,8 @@ export default function Home() {
     xp: 0,
     xpToNext: 100,
   });
+  const [userDataReady, setUserDataReady] =
+  useState(false);
 
   useEffect(() => {
   if (!currentUser) return;

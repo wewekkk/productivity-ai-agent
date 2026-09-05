@@ -1,50 +1,101 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
 import {
   confirmPlan,
   createQuest,
 } from "@/lib/agent";
-import type { Quest, Subtask } from "@/lib/types";
+
+import type {
+  Quest,
+  Subtask,
+} from "@/lib/types";
+
 import { AsciiMonster } from "./components/AsciiMonster";
 import { CalendarView } from "./components/CalendarView";
 import { CompleteResult } from "./components/CompleteResult";
 import { BossDefeated } from "./components/BossDefeated";
-import type { QuestCompletionPresentation } from "./components/BossDefeated";
+
+import type {
+  QuestCompletionPresentation,
+} from "./components/BossDefeated";
+
 import { FocusSession } from "./components/FocusSession";
-import type { FocusMode } from "./components/FocusSession";
+
+import type {
+  FocusMode,
+} from "./components/FocusSession";
+
 import { PlanPreview } from "./components/PlanPreview";
 import { QuestDetail } from "./components/QuestDetail";
 import { RecoveryPlan } from "./components/RecoveryPlan";
-import type { RecoveryTrigger } from "./components/RecoveryPlan";
+
+import type {
+  RecoveryTrigger,
+} from "./components/RecoveryPlan";
+
 import { QuestsView } from "./components/QuestsView";
 import { HistoryView } from "./components/HistoryView";
 import { SessionReport } from "./components/SessionReport";
 import { SessionOutcomeResult } from "./components/SessionOutcomeResult";
-import type { Outcome } from "./components/SessionOutcomeResult";
-import { rescueFallbackPresentation } from "./rescue-presentation";
-import { noStartFallbackPresentation } from "./no-start-presentation";
+
+import type {
+  Outcome,
+} from "./components/SessionOutcomeResult";
+
+import {
+  rescueFallbackPresentation,
+} from "./rescue-presentation";
+
+import {
+  noStartFallbackPresentation,
+} from "./no-start-presentation";
+
 import { Card } from "./components/ui";
-import type { ActivityEntry, ActivityKind } from "./history-presentation";
+
+import type {
+  ActivityEntry,
+  ActivityKind,
+} from "./history-presentation";
+
 import "./today.css";
 import "./today-polish.css";
 import "./navigation.css";
 import "./ascii-monster.css";
 
-type MainView = "today" | "quests" | "calendar" | "history";
-type ActiveSession = { quest: Quest; subtask: Subtask; minutes: number; mode?: FocusMode; initialMode?: FocusMode };
+type MainView =
+  | "today"
+  | "quests"
+  | "calendar"
+  | "history";
 
-type CurrentUser = {
-  id: string;
-  email: string;
-  name: string;
-  picture: string;
+type ActiveSession = {
+  quest: Quest;
+  subtask: Subtask;
+  minutes: number;
+  mode?: FocusMode;
+  initialMode?: FocusMode;
 };
+
 type UserProfile = {
   level: number;
   xp: number;
   xpToNext: number;
 };
+
+const QUEST_STORAGE_KEY =
+  "quest-agent-state";
+
+const HISTORY_STORAGE_KEY =
+  "quest-agent-history";
+
+const PROFILE_STORAGE_KEY =
+  "quest-agent-profile";
 
 const time = (value: string) =>
   new Intl.DateTimeFormat("zh-TW", {
@@ -53,559 +104,1518 @@ const time = (value: string) =>
     hour12: false,
   }).format(new Date(value));
 
-const statusLabel = (status: Quest["status"]) =>
-  status === "SAFE" || status === "PERFECT" ? "安全" : status === "DANGER" ? "注意" : "危險";
+const statusLabel = (
+  status: Quest["status"],
+) =>
+  status === "SAFE" ||
+  status === "PERFECT"
+    ? "安全"
+    : status === "DANGER"
+      ? "注意"
+      : "危險";
 
 export default function Home() {
-  const [quests, setQuests] = useState<Quest[]>([]);
-  const [goal, setGoal] = useState("");
-  const [isComposerOpen, setComposerOpen] = useState(false);
-  const [draft, setDraft] = useState<Quest | null>(null);
-  const [selectedQuest, setSelectedQuest] = useState<Quest | null>(null);
-  const [focusSession, setFocusSession] = useState<ActiveSession | null>(null);
-  const [reportSession, setReportSession] = useState<ActiveSession | null>(null);
-  const [completeResult, setCompleteResult] = useState<ActiveSession | null>(null);
-  const [bossDefeated, setBossDefeated] = useState<{ quest: Quest; completion: QuestCompletionPresentation } | null>(null);
-  const [outcomeResult, setOutcomeResult] = useState<(ActiveSession & { outcome: Outcome }) | null>(null);
-  const [recoveryPlan, setRecoveryPlan] = useState<(ActiveSession & { trigger: RecoveryTrigger }) | null>(null);
-  const [activityHistory, setActivityHistory] = useState<ActivityEntry[]>([]);
-  const [view, setView] = useState<MainView>("today");
-  const [currentUser, setCurrentUser] =
-  useState<CurrentUser | null>(null);
+  const [quests, setQuests] =
+    useState<Quest[]>([]);
 
-  const [authLoading, setAuthLoading] =
-  useState(true);
+  const [goal, setGoal] =
+    useState("");
+
+  const [
+    isComposerOpen,
+    setComposerOpen,
+  ] = useState(false);
+
+  const [draft, setDraft] =
+    useState<Quest | null>(null);
+
+  const [
+    selectedQuest,
+    setSelectedQuest,
+  ] = useState<Quest | null>(null);
+
+  const [
+    focusSession,
+    setFocusSession,
+  ] =
+    useState<ActiveSession | null>(
+      null,
+    );
+
+  const [
+    reportSession,
+    setReportSession,
+  ] =
+    useState<ActiveSession | null>(
+      null,
+    );
+
+  const [
+    completeResult,
+    setCompleteResult,
+  ] =
+    useState<ActiveSession | null>(
+      null,
+    );
+
+  const [
+    bossDefeated,
+    setBossDefeated,
+  ] = useState<{
+    quest: Quest;
+    completion: QuestCompletionPresentation;
+  } | null>(null);
+
+  const [
+    outcomeResult,
+    setOutcomeResult,
+  ] = useState<
+    | (ActiveSession & {
+        outcome: Outcome;
+      })
+    | null
+  >(null);
+
+  const [
+    recoveryPlan,
+    setRecoveryPlan,
+  ] = useState<
+    | (ActiveSession & {
+        trigger: RecoveryTrigger;
+      })
+    | null
+  >(null);
+
+  const [
+    activityHistory,
+    setActivityHistory,
+  ] = useState<ActivityEntry[]>([]);
+
+  const [view, setView] =
+    useState<MainView>("today");
+
   const [profile, setProfile] =
-  useState<UserProfile>({
-    level: 1,
-    xp: 0,
-    xpToNext: 100,
-  });
-  const [userDataReady, setUserDataReady] =
-  useState(false);
-
-  useEffect(() => {
-  if (!currentUser) return;
-
-  const storageKey =
-    `quest-agent-history:${currentUser.id}`;
-
-  const saved =
-    localStorage.getItem(storageKey);
-
-  if (!saved) {
-    setActivityHistory([]);
-    return;
-  }
-
-  try {
-    const parsed = JSON.parse(saved);
-
-    setActivityHistory(
-      Array.isArray(parsed)
-        ? parsed
-        : [],
-    );
-  } catch (error) {
-    console.error(
-      "讀取 History localStorage 失敗：",
-      error,
-    );
-
-    setActivityHistory([]);
-  }
-}, [currentUser]);
-
-  useEffect(() => {
-  if (!currentUser) return;
-
-  const storageKey =
-    `quest-agent-history:${currentUser.id}`;
-
-  localStorage.setItem(
-    storageKey,
-    JSON.stringify(activityHistory),
-  );
-}, [activityHistory, currentUser]);
-
-  useEffect(() => {
-  if (!currentUser) return;
-
-  const storageKey =
-    `quest-agent-profile:${currentUser.id}`;
-
-  const saved =
-    localStorage.getItem(storageKey);
-
-  if (!saved) {
-    setProfile({
+    useState<UserProfile>({
       level: 1,
       xp: 0,
       xpToNext: 100,
     });
-    return;
-  }
 
-  try {
-    const parsed =
-      JSON.parse(saved) as UserProfile;
-
-    setProfile(parsed);
-  } catch (error) {
-    console.error(
-      "讀取使用者 Profile 失敗：",
-      error,
-    );
-
-    setProfile({
-      level: 1,
-      xp: 0,
-      xpToNext: 100,
-    });
-  }
-}, [currentUser]);
-
-useEffect(() => {
-  if (!currentUser) return;
-
-  const storageKey =
-    `quest-agent-profile:${currentUser.id}`;
-
-  localStorage.setItem(
-    storageKey,
-    JSON.stringify(profile),
-  );
-}, [profile, currentUser]);
-
-
-
+  /*
+   * Quest localStorage
+   */
   useEffect(() => {
-  const loadCurrentUser = async () => {
+    const saved =
+      localStorage.getItem(
+        QUEST_STORAGE_KEY,
+      );
+
+    if (!saved) {
+      setQuests([]);
+      return;
+    }
+
     try {
-      const response = await fetch("/api/me");
+      const parsed =
+        JSON.parse(saved);
 
-      const data = await response.json();
-
-      if (data.authenticated && data.user) {
-        setCurrentUser(data.user);
-      } else {
-        setCurrentUser(null);
-      }
+      setQuests(
+        Array.isArray(parsed)
+          ? parsed
+          : [parsed],
+      );
     } catch (error) {
       console.error(
-        "讀取登入使用者失敗：",
+        "讀取 Quest localStorage 失敗：",
         error,
       );
 
-      setCurrentUser(null);
-    } finally {
-      setAuthLoading(false);
+      setQuests([]);
     }
-  };
-
-  loadCurrentUser();
-}, []);
+  }, []);
 
   useEffect(() => {
-  if (!currentUser) return;
-
-  const storageKey =
-    `quest-agent-state:${currentUser.id}`;
-
-  const saved =
-    localStorage.getItem(storageKey);
-
-  if (!saved) {
-    setQuests([]);
-    return;
-  }
-
-  try {
-    const parsed = JSON.parse(saved);
-
-    setQuests(
-      Array.isArray(parsed)
-        ? parsed
-        : [parsed],
+    localStorage.setItem(
+      QUEST_STORAGE_KEY,
+      JSON.stringify(quests),
     );
-  } catch (error) {
-    console.error(
-      "讀取 Quest localStorage 失敗：",
-      error,
+  }, [quests]);
+
+  /*
+   * History localStorage
+   */
+  useEffect(() => {
+    const saved =
+      localStorage.getItem(
+        HISTORY_STORAGE_KEY,
+      );
+
+    if (!saved) {
+      setActivityHistory([]);
+      return;
+    }
+
+    try {
+      const parsed =
+        JSON.parse(saved);
+
+      setActivityHistory(
+        Array.isArray(parsed)
+          ? parsed
+          : [],
+      );
+    } catch (error) {
+      console.error(
+        "讀取 History localStorage 失敗：",
+        error,
+      );
+
+      setActivityHistory([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(
+      HISTORY_STORAGE_KEY,
+      JSON.stringify(
+        activityHistory,
+      ),
     );
+  }, [activityHistory]);
 
-    setQuests([]);
-  }
-}, [currentUser]);
+  /*
+   * Profile / XP localStorage
+   */
+  useEffect(() => {
+    const saved =
+      localStorage.getItem(
+        PROFILE_STORAGE_KEY,
+      );
 
-useEffect(() => {
-  if (!currentUser) return;
+    if (!saved) {
+      setProfile({
+        level: 1,
+        xp: 0,
+        xpToNext: 100,
+      });
 
-  const storageKey =
-    `quest-agent-state:${currentUser.id}`;
+      return;
+    }
 
-  localStorage.setItem(
-    storageKey,
-    JSON.stringify(quests),
-  );
-}, [quests, currentUser]);
+    try {
+      const parsed =
+        JSON.parse(
+          saved,
+        ) as UserProfile;
 
+      setProfile(parsed);
+    } catch (error) {
+      console.error(
+        "讀取 Profile 失敗：",
+        error,
+      );
+
+      setProfile({
+        level: 1,
+        xp: 0,
+        xpToNext: 100,
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(
+      PROFILE_STORAGE_KEY,
+      JSON.stringify(profile),
+    );
+  }, [profile]);
+
+  /*
+   * Quest scheduling
+   */
   const scheduled = useMemo(
     () =>
       quests
         .flatMap((quest) =>
           quest.subtasks
-            .filter((subtask) => subtask.status !== "complete")
-            .map((subtask) => ({ quest, subtask })),
+            .filter(
+              (subtask) =>
+                subtask.status !==
+                "complete",
+            )
+            .map((subtask) => ({
+              quest,
+              subtask,
+            })),
         )
-        .sort((a, b) => +new Date(a.subtask.scheduledAt) - +new Date(b.subtask.scheduledAt)),
+        .sort(
+          (a, b) =>
+            +new Date(
+              a.subtask.scheduledAt,
+            ) -
+            +new Date(
+              b.subtask.scheduledAt,
+            ),
+        ),
     [quests],
   );
+
   const next = scheduled[0];
-  const nextStageNumber = next ? next.quest.subtasks.findIndex((subtask) => subtask.id === next.subtask.id) + 1 : 0;
-  const nextCompletedCount = next ? next.quest.subtasks.filter((subtask) => subtask.status === "complete").length : 0;
-  const todayItems = scheduled.filter(
-    ({ subtask }) => new Date(subtask.scheduledAt).toDateString() === new Date().toDateString(),
-  );
-  const defeatedBosses = useMemo(() => quests.filter((quest) => quest.subtasks.length > 0 && quest.subtasks.every((subtask) => subtask.status === "complete")).map((quest) => {
-    const entries = activityHistory.filter((entry) => entry.questId === quest.id);
-    const defeated = entries.find((entry) => entry.kind === "boss_defeated");
-    return { questId: quest.id, title: quest.title, completedAt: defeated?.at, sessionCount: quest.subtasks.length, totalDamage: entries.reduce((total, entry) => total + (entry.damage ?? 0), 0), xpEarned: defeated?.xp ?? quest.xp };
-  }), [activityHistory, quests]);
 
+  const nextStageNumber = next
+    ? next.quest.subtasks.findIndex(
+        (subtask) =>
+          subtask.id ===
+          next.subtask.id,
+      ) + 1
+    : 0;
+
+  const nextCompletedCount = next
+    ? next.quest.subtasks.filter(
+        (subtask) =>
+          subtask.status ===
+          "complete",
+      ).length
+    : 0;
+
+  const todayItems =
+    scheduled.filter(
+      ({ subtask }) =>
+        new Date(
+          subtask.scheduledAt,
+        ).toDateString() ===
+        new Date().toDateString(),
+    );
+
+  const defeatedBosses =
+    useMemo(
+      () =>
+        quests
+          .filter(
+            (quest) =>
+              quest.subtasks.length >
+                0 &&
+              quest.subtasks.every(
+                (subtask) =>
+                  subtask.status ===
+                  "complete",
+              ),
+          )
+          .map((quest) => {
+            const entries =
+              activityHistory.filter(
+                (entry) =>
+                  entry.questId ===
+                  quest.id,
+              );
+
+            const defeated =
+              entries.find(
+                (entry) =>
+                  entry.kind ===
+                  "boss_defeated",
+              );
+
+            return {
+              questId: quest.id,
+              title: quest.title,
+              completedAt:
+                defeated?.at,
+              sessionCount:
+                quest.subtasks
+                  .length,
+              totalDamage:
+                entries.reduce(
+                  (total, entry) =>
+                    total +
+                    (entry.damage ??
+                      0),
+                  0,
+                ),
+              xpEarned:
+                defeated?.xp ??
+                quest.xp,
+            };
+          }),
+      [
+        activityHistory,
+        quests,
+      ],
+    );
+
+  /*
+   * Groq Agent
+   */
   const createDraft = async () => {
-  const trimmedGoal = goal.trim();
+    const trimmedGoal =
+      goal.trim();
 
-  if (!trimmedGoal) return;
+    if (!trimmedGoal) return;
 
-  try {
-    const response = await fetch("/api/agent", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        goal: trimmedGoal,
-      }),
-    });
+    try {
+      const response =
+        await fetch("/api/agent", {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            goal: trimmedGoal,
+          }),
+        });
 
-    if (!response.ok) {
-      throw new Error("Groq Agent API 呼叫失敗");
-    }
+      if (!response.ok) {
+        throw new Error(
+          "Groq Agent API 呼叫失敗",
+        );
+      }
 
-    const data = await response.json();
+      const data =
+        await response.json();
 
-    setDraft(data.quest);
-  } catch (error) {
-    console.error(
-      "Groq Agent 發生錯誤，改用本機 Agent：",
-      error,
-    );
+      setDraft(data.quest);
+    } catch (error) {
+      console.error(
+        "Groq Agent 發生錯誤，改用本機 Agent：",
+        error,
+      );
 
-    setDraft(createQuest(trimmedGoal));
-  }
-
-  setGoal("");
-  setComposerOpen(false);
-};
-
-  const confirmDraftAndSync = async () => {
-  if (!draft) return;
-
-  try {
-    const response = await fetch(
-      "/api/calendar/sync",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          events: draft.events,
-        }),
-      },
-    );
-
-    if (response.status === 401) {
-      window.location.href =
-        "/api/auth/google";
-      return;
-    }
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(
-        data.error ??
-          "Google Calendar 寫入失敗",
+      setDraft(
+        createQuest(
+          trimmedGoal,
+        ),
       );
     }
 
-    const confirmed = confirmPlan(draft);
+    setGoal("");
+    setComposerOpen(false);
+  };
 
-    const syncedQuest: Quest = {
-      ...confirmed,
-      events:
-        data.events ?? confirmed.events,
-      activity: [
-        ...confirmed.activity,
-        "已同步至 Google Calendar",
+  /*
+   * Hackathon MVP:
+   * 不再同步 Google Calendar。
+   * 確認後直接加入 Quest Agent
+   * 自己的站內 Calendar。
+   */
+  const confirmDraftAndSync =
+    async () => {
+      if (!draft) return;
+
+      const confirmed =
+        confirmPlan(draft);
+
+      const confirmedQuest: Quest =
+        {
+          ...confirmed,
+          activity: [
+            ...confirmed.activity,
+            "已加入 Quest Agent 行事曆",
+          ],
+          lastSignal:
+            "排程已確認並加入 Quest Agent 行事曆。",
+        };
+
+      setQuests((current) => [
+        ...current,
+        confirmedQuest,
+      ]);
+
+      setDraft(null);
+      setView("today");
+    };
+
+  const openFocus = (
+    quest: Quest,
+    subtask: Subtask,
+    minutes: number,
+    initialMode?: FocusMode,
+  ) =>
+    setFocusSession({
+      quest,
+      subtask,
+      minutes,
+      initialMode,
+    });
+
+  const openReport = (
+    quest: Quest,
+    subtask: Subtask,
+  ) =>
+    setReportSession({
+      quest,
+      subtask,
+      minutes:
+        subtask.minutes,
+    });
+
+  const nextDemoSession = (
+    session: ActiveSession,
+  ) =>
+    session.quest.subtasks.find(
+      (subtask) =>
+        subtask.status !==
+        "complete",
+    );
+
+  const recordActivity = (
+    session: ActiveSession,
+    kind: ActivityKind,
+    details: Pick<
+      ActivityEntry,
+      | "damage"
+      | "xp"
+      | "agentAction"
+    > = {},
+  ) => {
+    setActivityHistory(
+      (current) => [
+        ...current,
+        {
+          id: `${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2)}`,
+          at: new Date().toISOString(),
+          questId:
+            session.quest.id,
+          questTitle:
+            session.quest.title,
+          sessionTitle:
+            session.subtask.title,
+          kind,
+          ...details,
+        },
       ],
-      lastSignal:
-        "排程已確認並寫入 Google Calendar。",
-    };
-
-    setQuests((current) => [
-      ...current,
-      syncedQuest,
-    ]);
-
-    setDraft(null);
-    setView("today");
-  } catch (error) {
-    console.error(
-      "Google Calendar 同步失敗：",
-      error,
     );
-
-    alert(
-      "Google Calendar 同步失敗，請稍後再試。",
-    );
-  }
-};
-
-  const openFocus = (quest: Quest, subtask: Subtask, minutes: number, initialMode?: FocusMode) => setFocusSession({ quest, subtask, minutes, initialMode });
-  const openReport = (quest: Quest, subtask: Subtask) => setReportSession({ quest, subtask, minutes: subtask.minutes });
-  const nextDemoSession = (session: ActiveSession) => session.quest.subtasks.find((subtask) => subtask.status !== "complete");
-  const recordActivity = (session: ActiveSession, kind: ActivityKind, details: Pick<ActivityEntry, "damage" | "xp" | "agentAction"> = {}) => {
-    setActivityHistory((current) => [...current, { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, at: new Date().toISOString(), questId: session.quest.id, questTitle: session.quest.title, sessionTitle: session.subtask.title, kind, ...details }]);
   };
-  const finishDemoSession = (session: ActiveSession) => {
-    const updatedQuest: Quest = {
-      ...session.quest,
-      bossHp: Math.max(0, session.quest.bossHp - session.subtask.damage),
-      subtasks: session.quest.subtasks.map((subtask) => subtask.id === session.subtask.id ? { ...subtask, status: "complete" } : subtask),
-    };
-    const updatedSession: ActiveSession = { ...session, quest: updatedQuest, subtask: { ...session.subtask, status: "complete" } };
-    setQuests((current) => current.map((quest) => quest.id === updatedQuest.id ? updatedQuest : quest));
-    setSelectedQuest((current) => current?.id === updatedQuest.id ? updatedQuest : current);
-    const hasNext = updatedQuest.subtasks.some((subtask) => subtask.status !== "complete");
+
+  const finishDemoSession = (
+    session: ActiveSession,
+  ) => {
+    const updatedQuest: Quest =
+      {
+        ...session.quest,
+        bossHp: Math.max(
+          0,
+          session.quest.bossHp -
+            session.subtask.damage,
+        ),
+        subtasks:
+          session.quest.subtasks.map(
+            (subtask) =>
+              subtask.id ===
+              session.subtask.id
+                ? {
+                    ...subtask,
+                    status:
+                      "complete",
+                  }
+                : subtask,
+          ),
+      };
+
+    const updatedSession: ActiveSession =
+      {
+        ...session,
+        quest: updatedQuest,
+        subtask: {
+          ...session.subtask,
+          status: "complete",
+        },
+      };
+
+    setQuests((current) =>
+      current.map((quest) =>
+        quest.id ===
+        updatedQuest.id
+          ? updatedQuest
+          : quest,
+      ),
+    );
+
+    setSelectedQuest(
+      (current) =>
+        current?.id ===
+        updatedQuest.id
+          ? updatedQuest
+          : current,
+    );
+
+    const hasNext =
+      updatedQuest.subtasks.some(
+        (subtask) =>
+          subtask.status !==
+          "complete",
+      );
+
     const earnedXp =
-  session.quest.xp || 30;
+      session.quest.xp || 30;
 
-setProfile((current) => {
-  let nextXp =
-    current.xp + earnedXp;
+    setProfile((current) => {
+      let nextXp =
+        current.xp +
+        earnedXp;
 
-  let nextLevel =
-    current.level;
+      let nextLevel =
+        current.level;
 
-  let nextXpToNext =
-    current.xpToNext;
+      let nextXpToNext =
+        current.xpToNext;
 
-  while (nextXp >= nextXpToNext) {
-    nextXp -= nextXpToNext;
-    nextLevel += 1;
-    nextXpToNext += 100;
-  }
+      while (
+        nextXp >=
+        nextXpToNext
+      ) {
+        nextXp -=
+          nextXpToNext;
 
-  return {
-    level: nextLevel,
-    xp: nextXp,
-    xpToNext: nextXpToNext,
-  };
-});
-    recordActivity(updatedSession, "completed", {
-  damage: session.subtask.damage,
-  xp: earnedXp,
-});
-    if (hasNext) setCompleteResult(updatedSession);
-    else {
-      recordActivity(updatedSession, "boss_defeated", { xp: session.quest.xp || 120, agentAction: "已完成所有工作階段" });
-      setBossDefeated({ quest: updatedQuest, completion: { isQuestComplete: true, remainingHp: 0, xpEarned: session.quest.xp || 120 } });
+        nextLevel += 1;
+
+        nextXpToNext += 100;
+      }
+
+      return {
+        level: nextLevel,
+        xp: nextXp,
+        xpToNext:
+          nextXpToNext,
+      };
+    });
+
+    recordActivity(
+      updatedSession,
+      "completed",
+      {
+        damage:
+          session.subtask.damage,
+        xp: earnedXp,
+      },
+    );
+
+    if (hasNext) {
+      setCompleteResult(
+        updatedSession,
+      );
+    } else {
+      recordActivity(
+        updatedSession,
+        "boss_defeated",
+        {
+          xp:
+            session.quest.xp ||
+            120,
+          agentAction:
+            "已完成所有工作階段",
+        },
+      );
+
+      setBossDefeated({
+        quest: updatedQuest,
+        completion: {
+          isQuestComplete: true,
+          remainingHp: 0,
+          xpEarned:
+            session.quest.xp ||
+            120,
+        },
+      });
     }
   };
 
-  if (authLoading) {
-  return (
-    <main className="today-shell">
-      <section className="today-page">
-        <Card>
-          <h2>Quest Agent</h2>
-          <p>正在確認登入狀態...</p>
-        </Card>
-      </section>
-    </main>
-  );
-}
-
-  if (!currentUser) {
-  return (
-    <main className="today-shell">
-      <section className="today-page">
-        <Card>
-          <h1>Quest Agent</h1>
-
-          <p>
-            把待辦事項，變成一場可以完成的 Quest。
-          </p>
-
-          <button
-            onClick={() => {
-              window.location.href =
-                "/api/auth/google";
-            }}
-          >
-            使用 Google 繼續
-          </button>
-        </Card>
-      </section>
-    </main>
-  );
-}
-
+  /*
+   * Plan Preview
+   */
   if (draft) {
-  return (
-    <PlanPreview
-      quest={draft}
-      onBack={() => {
-        setDraft(null);
-        setView("today");
-      }}
-      onConfirm={confirmDraftAndSync}
-    />
-  );
-}
+    return (
+      <PlanPreview
+        quest={draft}
+        onBack={() => {
+          setDraft(null);
+          setView("today");
+        }}
+        onConfirm={
+          confirmDraftAndSync
+        }
+      />
+    );
+  }
 
+  /*
+   * Focus Session
+   */
   if (focusSession) {
-    return <FocusSession quest={focusSession.quest} subtask={focusSession.subtask} initialMinutes={focusSession.minutes} initialMode={focusSession.initialMode} onBack={() => setFocusSession(null)} onReport={(mode) => { setFocusSession(null); setReportSession({ ...focusSession, mode }); }} onComplete={() => { setFocusSession(null); finishDemoSession(focusSession); }} onRescueComplete={() => { recordActivity(focusSession, "rescue", { damage: 5, agentAction: "已重新整理剩餘工作" }); setFocusSession(null); setOutcomeResult({ ...focusSession, outcome: "rescue" }); }} />;
+    return (
+      <FocusSession
+        quest={
+          focusSession.quest
+        }
+        subtask={
+          focusSession.subtask
+        }
+        initialMinutes={
+          focusSession.minutes
+        }
+        initialMode={
+          focusSession.initialMode
+        }
+        onBack={() =>
+          setFocusSession(null)
+        }
+        onReport={(mode) => {
+          setFocusSession(null);
+
+          setReportSession({
+            ...focusSession,
+            mode,
+          });
+        }}
+        onComplete={() => {
+          setFocusSession(null);
+
+          finishDemoSession(
+            focusSession,
+          );
+        }}
+        onRescueComplete={() => {
+          recordActivity(
+            focusSession,
+            "rescue",
+            {
+              damage: 5,
+              agentAction:
+                "已重新整理剩餘工作",
+            },
+          );
+
+          setFocusSession(null);
+
+          setOutcomeResult({
+            ...focusSession,
+            outcome: "rescue",
+          });
+        }}
+      />
+    );
   }
 
   if (completeResult) {
-    return <CompleteResult quest={completeResult.quest} subtask={completeResult.subtask} nextSession={nextDemoSession(completeResult)} onStartNext={() => { const next = nextDemoSession(completeResult); if (next) { setFocusSession({ quest: completeResult.quest, subtask: next, minutes: next.minutes }); setCompleteResult(null); } }} onToday={() => { setCompleteResult(null); setSelectedQuest(null); setView("today"); }} onQuest={() => { setSelectedQuest(completeResult.quest); setCompleteResult(null); setView("quests"); }} />;
+    return (
+      <CompleteResult
+        quest={
+          completeResult.quest
+        }
+        subtask={
+          completeResult.subtask
+        }
+        nextSession={
+          nextDemoSession(
+            completeResult,
+          )
+        }
+        onStartNext={() => {
+          const next =
+            nextDemoSession(
+              completeResult,
+            );
+
+          if (next) {
+            setFocusSession({
+              quest:
+                completeResult.quest,
+              subtask: next,
+              minutes:
+                next.minutes,
+            });
+
+            setCompleteResult(
+              null,
+            );
+          }
+        }}
+        onToday={() => {
+          setCompleteResult(
+            null,
+          );
+
+          setSelectedQuest(
+            null,
+          );
+
+          setView("today");
+        }}
+        onQuest={() => {
+          setSelectedQuest(
+            completeResult.quest,
+          );
+
+          setCompleteResult(
+            null,
+          );
+
+          setView("quests");
+        }}
+      />
+    );
   }
 
   if (bossDefeated) {
-    return <BossDefeated quest={bossDefeated.quest} completion={bossDefeated.completion} onToday={() => { setBossDefeated(null); setSelectedQuest(null); setView("today"); }} onQuest={() => { setSelectedQuest(bossDefeated.quest); setBossDefeated(null); setView("quests"); }} />;
+    return (
+      <BossDefeated
+        quest={
+          bossDefeated.quest
+        }
+        completion={
+          bossDefeated.completion
+        }
+        onToday={() => {
+          setBossDefeated(null);
+          setSelectedQuest(null);
+          setView("today");
+        }}
+        onQuest={() => {
+          setSelectedQuest(
+            bossDefeated.quest,
+          );
+
+          setBossDefeated(null);
+          setView("quests");
+        }}
+      />
+    );
   }
 
   if (outcomeResult) {
-    return <SessionOutcomeResult quest={outcomeResult.quest} subtask={outcomeResult.subtask} outcome={outcomeResult.outcome} damage={outcomeResult.outcome === "partial" && outcomeResult.mode === "quick" ? 3 : undefined} rescuePresentation={outcomeResult.outcome === "rescue" ? rescueFallbackPresentation : undefined} noStartPresentation={outcomeResult.outcome === "missed" ? noStartFallbackPresentation : undefined} onBack={() => { setSelectedQuest(outcomeResult.quest); setOutcomeResult(null); setView("quests"); }} onRecovery={() => { setRecoveryPlan({ ...outcomeResult, trigger: outcomeResult.outcome === "missed" ? "missed" : outcomeResult.outcome === "stuck" || outcomeResult.outcome === "rescue" ? "stuck" : "partial" }); setOutcomeResult(null); }} onRescue={() => { setFocusSession({ ...outcomeResult, minutes: 5, initialMode: "rescue" }); setOutcomeResult(null); }} onRecommendedAction={(action) => { setFocusSession({ ...outcomeResult, subtask: { ...outcomeResult.subtask, title: action.nextFocus.title, minutes: action.nextFocus.estimatedMinutes }, minutes: action.nextFocus.estimatedMinutes, initialMode: "normal" }); setOutcomeResult(null); }} onNoStartAction={(action) => { setFocusSession({ ...outcomeResult, minutes: action.focus.estimatedMinutes, initialMode: action.focus.mode }); setOutcomeResult(null); }} />;
+    return (
+      <SessionOutcomeResult
+        quest={
+          outcomeResult.quest
+        }
+        subtask={
+          outcomeResult.subtask
+        }
+        outcome={
+          outcomeResult.outcome
+        }
+        damage={
+          outcomeResult.outcome ===
+            "partial" &&
+          outcomeResult.mode ===
+            "quick"
+            ? 3
+            : undefined
+        }
+        rescuePresentation={
+          outcomeResult.outcome ===
+          "rescue"
+            ? rescueFallbackPresentation
+            : undefined
+        }
+        noStartPresentation={
+          outcomeResult.outcome ===
+          "missed"
+            ? noStartFallbackPresentation
+            : undefined
+        }
+        onBack={() => {
+          setSelectedQuest(
+            outcomeResult.quest,
+          );
+
+          setOutcomeResult(null);
+          setView("quests");
+        }}
+        onRecovery={() => {
+          setRecoveryPlan({
+            ...outcomeResult,
+            trigger:
+              outcomeResult.outcome ===
+              "missed"
+                ? "missed"
+                : outcomeResult.outcome ===
+                      "stuck" ||
+                    outcomeResult.outcome ===
+                      "rescue"
+                  ? "stuck"
+                  : "partial",
+          });
+
+          setOutcomeResult(null);
+        }}
+        onRescue={() => {
+          setFocusSession({
+            ...outcomeResult,
+            minutes: 5,
+            initialMode:
+              "rescue",
+          });
+
+          setOutcomeResult(null);
+        }}
+        onRecommendedAction={(
+          action,
+        ) => {
+          setFocusSession({
+            ...outcomeResult,
+            subtask: {
+              ...outcomeResult.subtask,
+              title:
+                action.nextFocus
+                  .title,
+              minutes:
+                action.nextFocus
+                  .estimatedMinutes,
+            },
+            minutes:
+              action.nextFocus
+                .estimatedMinutes,
+            initialMode:
+              "normal",
+          });
+
+          setOutcomeResult(null);
+        }}
+        onNoStartAction={(
+          action,
+        ) => {
+          setFocusSession({
+            ...outcomeResult,
+            minutes:
+              action.focus
+                .estimatedMinutes,
+            initialMode:
+              action.focus.mode,
+          });
+
+          setOutcomeResult(null);
+        }}
+      />
+    );
   }
 
   if (recoveryPlan) {
-    return <RecoveryPlan quest={recoveryPlan.quest} subtask={recoveryPlan.subtask} trigger={recoveryPlan.trigger} onBack={() => { setSelectedQuest(recoveryPlan.quest); setRecoveryPlan(null); setView("quests"); }} onAccept={() => { recordActivity(recoveryPlan, "replan", { agentAction: "使用者接受新的安排提案" }); setSelectedQuest(recoveryPlan.quest); setRecoveryPlan(null); setView("quests"); }} />;
+    return (
+      <RecoveryPlan
+        quest={
+          recoveryPlan.quest
+        }
+        subtask={
+          recoveryPlan.subtask
+        }
+        trigger={
+          recoveryPlan.trigger
+        }
+        onBack={() => {
+          setSelectedQuest(
+            recoveryPlan.quest,
+          );
+
+          setRecoveryPlan(null);
+          setView("quests");
+        }}
+        onAccept={() => {
+          recordActivity(
+            recoveryPlan,
+            "replan",
+            {
+              agentAction:
+                "使用者接受新的安排提案",
+            },
+          );
+
+          setSelectedQuest(
+            recoveryPlan.quest,
+          );
+
+          setRecoveryPlan(null);
+          setView("quests");
+        }}
+      />
+    );
   }
 
   if (reportSession) {
-    return <SessionReport quest={reportSession.quest} subtask={reportSession.subtask} onBack={() => setReportSession(null)} onComplete={() => { finishDemoSession(reportSession); setReportSession(null); }} onPartial={() => { recordActivity(reportSession, "partial", { damage: reportSession.mode === "quick" ? 3 : 8 }); setOutcomeResult({ ...reportSession, outcome: "partial" }); setReportSession(null); }} onStuck={() => { recordActivity(reportSession, "stuck", { damage: 4 }); setOutcomeResult({ ...reportSession, outcome: "stuck" }); setReportSession(null); }} onMissed={() => { recordActivity(reportSession, "missed", { damage: 0 }); setOutcomeResult({ ...reportSession, outcome: "missed" }); setReportSession(null); }} />;
+    return (
+      <SessionReport
+        quest={
+          reportSession.quest
+        }
+        subtask={
+          reportSession.subtask
+        }
+        onBack={() =>
+          setReportSession(null)
+        }
+        onComplete={() => {
+          finishDemoSession(
+            reportSession,
+          );
+
+          setReportSession(null);
+        }}
+        onPartial={() => {
+          recordActivity(
+            reportSession,
+            "partial",
+            {
+              damage:
+                reportSession.mode ===
+                "quick"
+                  ? 3
+                  : 8,
+            },
+          );
+
+          setOutcomeResult({
+            ...reportSession,
+            outcome: "partial",
+          });
+
+          setReportSession(null);
+        }}
+        onStuck={() => {
+          recordActivity(
+            reportSession,
+            "stuck",
+            {
+              damage: 4,
+            },
+          );
+
+          setOutcomeResult({
+            ...reportSession,
+            outcome: "stuck",
+          });
+
+          setReportSession(null);
+        }}
+        onMissed={() => {
+          recordActivity(
+            reportSession,
+            "missed",
+            {
+              damage: 0,
+            },
+          );
+
+          setOutcomeResult({
+            ...reportSession,
+            outcome: "missed",
+          });
+
+          setReportSession(null);
+        }}
+      />
+    );
   }
 
   if (selectedQuest) {
-    return <QuestDetail quest={selectedQuest} history={activityHistory} isCompleted={selectedQuest.subtasks.length > 0 && selectedQuest.subtasks.every((subtask) => subtask.status === "complete")} onBack={() => { setSelectedQuest(null); setView("quests"); }} onStart={(subtask) => openFocus(selectedQuest, subtask, subtask.minutes)} onQuickStart={(subtask) => openFocus(selectedQuest, subtask, 3)} onReport={(subtask) => openReport(selectedQuest, subtask)} />;
+    return (
+      <QuestDetail
+        quest={selectedQuest}
+        history={
+          activityHistory
+        }
+        isCompleted={
+          selectedQuest.subtasks
+            .length > 0 &&
+          selectedQuest.subtasks.every(
+            (subtask) =>
+              subtask.status ===
+              "complete",
+          )
+        }
+        onBack={() => {
+          setSelectedQuest(null);
+          setView("quests");
+        }}
+        onStart={(subtask) =>
+          openFocus(
+            selectedQuest,
+            subtask,
+            subtask.minutes,
+          )
+        }
+        onQuickStart={(
+          subtask,
+        ) =>
+          openFocus(
+            selectedQuest,
+            subtask,
+            3,
+          )
+        }
+        onReport={(subtask) =>
+          openReport(
+            selectedQuest,
+            subtask,
+          )
+        }
+      />
+    );
   }
 
   return (
     <main className="today-shell">
-      <nav className="top-nav" aria-label="主要導覽">
+      <nav
+        className="top-nav"
+        aria-label="主要導覽"
+      >
         <b>Quest Agent</b>
+
         <div className="nav-tabs">
-          <button className={view === "today" ? "nav-active" : ""} onClick={() => setView("today")}>今天</button>
-          <button className={view === "quests" ? "nav-active" : ""} onClick={() => setView("quests")}>任務</button>
-          <button className={view === "calendar" ? "nav-active" : ""} onClick={() => setView("calendar")}>行事曆</button>
-          <button className={view === "history" ? "nav-active" : ""} onClick={() => setView("history")}>紀錄</button>
+          <button
+            className={
+              view === "today"
+                ? "nav-active"
+                : ""
+            }
+            onClick={() =>
+              setView("today")
+            }
+          >
+            今天
+          </button>
+
+          <button
+            className={
+              view === "quests"
+                ? "nav-active"
+                : ""
+            }
+            onClick={() =>
+              setView("quests")
+            }
+          >
+            任務
+          </button>
+
+          <button
+            className={
+              view === "calendar"
+                ? "nav-active"
+                : ""
+            }
+            onClick={() =>
+              setView("calendar")
+            }
+          >
+            行事曆
+          </button>
+
+          <button
+            className={
+              view === "history"
+                ? "nav-active"
+                : ""
+            }
+            onClick={() =>
+              setView("history")
+            }
+          >
+            紀錄
+          </button>
         </div>
-        <div
-  style={{
-    display: "flex",
-    alignItems: "center",
-    gap: "12px",
-  }}
->
-  <span>
-  Lv. {profile.level}
-  <strong>
-    {profile.xp} / {profile.xpToNext} XP
-  </strong>
-</span>
 
-  {currentUser.picture && (
-    <img
-      src={currentUser.picture}
-      alt={currentUser.name || "Google 使用者"}
-      width={36}
-      height={36}
-      style={{
-        borderRadius: "50%",
-        objectFit: "cover",
-      }}
-    />
-  )}
-
-  <button
-    onClick={async () => {
-      await fetch("/api/logout", {
-        method: "POST",
-      });
-
-      setCurrentUser(null);
-
-      window.location.href = "/";
-    }}
-  >
-    登出
-  </button>
-</div>
+        <span>
+          Lv. {profile.level}
+          <strong>
+            {profile.xp} /{" "}
+            {profile.xpToNext} XP
+          </strong>
+        </span>
       </nav>
 
       {view === "today" && (
         <section className="today-page">
           <header>
             <p>早安 ☀️</p>
-            <h1>今天先完成眼前這一關。</h1>
-            <small>還有 {scheduled.length} 個安排，Agent 會幫你顧著。</small>
+
+            <h1>
+              今天先完成眼前這一關。
+            </h1>
+
+            <small>
+              還有{" "}
+              {scheduled.length}{" "}
+              個安排，Agent
+              會幫你顧著。
+            </small>
           </header>
 
           {next ? (
             <Card className="next-quest compact">
               <div className="next-copy">
-                <p className="eyebrow">下一關 · 第 {nextStageNumber} / {next.quest.subtasks.length} 關</p>
-                <h2>{next.quest.title}</h2>
-                <span className={`quest-status ${next.quest.status.toLowerCase()}`}>{statusLabel(next.quest.status)}</span>
-                <div className="hp"><i style={{ width: `${next.quest.bossHp}%` }} /></div>
-                <b>{next.quest.bossHp} / 100 HP · 已完成 {nextCompletedCount} / {next.quest.subtasks.length}</b>
-                <h3>{next.subtask.title}</h3>
-                <p>今天 {time(next.subtask.scheduledAt)} · {next.subtask.minutes} 分鐘 · {next.subtask.damage} DMG</p>
-                <div className="actions"><button onClick={() => openFocus(next.quest, next.subtask, next.subtask.minutes)}>開始這一關</button><button className="soft" onClick={() => openFocus(next.quest, next.subtask, 3)}>先做 3 分鐘</button><button className="text" onClick={() => openReport(next.quest, next.subtask)}>直接回報進度</button></div>
+                <p className="eyebrow">
+                  下一關 · 第{" "}
+                  {
+                    nextStageNumber
+                  }{" "}
+                  /{" "}
+                  {
+                    next.quest
+                      .subtasks
+                      .length
+                  }{" "}
+                  關
+                </p>
+
+                <h2>
+                  {
+                    next.quest
+                      .title
+                  }
+                </h2>
+
+                <span
+                  className={`quest-status ${next.quest.status.toLowerCase()}`}
+                >
+                  {statusLabel(
+                    next.quest
+                      .status,
+                  )}
+                </span>
+
+                <div className="hp">
+                  <i
+                    style={{
+                      width: `${next.quest.bossHp}%`,
+                    }}
+                  />
+                </div>
+
+                <b>
+                  {
+                    next.quest
+                      .bossHp
+                  }{" "}
+                  / 100 HP ·
+                  已完成{" "}
+                  {
+                    nextCompletedCount
+                  }{" "}
+                  /{" "}
+                  {
+                    next.quest
+                      .subtasks
+                      .length
+                  }
+                </b>
+
+                <h3>
+                  {
+                    next.subtask
+                      .title
+                  }
+                </h3>
+
+                <p>
+                  今天{" "}
+                  {time(
+                    next.subtask
+                      .scheduledAt,
+                  )}{" "}
+                  ·{" "}
+                  {
+                    next.subtask
+                      .minutes
+                  }{" "}
+                  分鐘 ·{" "}
+                  {
+                    next.subtask
+                      .damage
+                  }{" "}
+                  DMG
+                </p>
+
+                <div className="actions">
+                  <button
+                    onClick={() =>
+                      openFocus(
+                        next.quest,
+                        next.subtask,
+                        next.subtask
+                          .minutes,
+                      )
+                    }
+                  >
+                    開始這一關
+                  </button>
+
+                  <button
+                    className="soft"
+                    onClick={() =>
+                      openFocus(
+                        next.quest,
+                        next.subtask,
+                        3,
+                      )
+                    }
+                  >
+                    先做 3 分鐘
+                  </button>
+
+                  <button
+                    className="text"
+                    onClick={() =>
+                      openReport(
+                        next.quest,
+                        next.subtask,
+                      )
+                    }
+                  >
+                    直接回報進度
+                  </button>
+                </div>
               </div>
-              <div className="monster-wrap"><AsciiMonster state="normal" /><small>CV BOSS</small></div>
+
+              <div className="monster-wrap">
+                <AsciiMonster state="normal" />
+                <small>
+                  CV BOSS
+                </small>
+              </div>
             </Card>
           ) : (
-            <Card className="next-quest empty-next"><AsciiMonster state="normal" /><div><p className="eyebrow">下一關</p><h2>今天還沒有安排任務</h2><p>告訴 Agent 你想完成什麼，我們一起找出第一步。</p></div></Card>
+            <Card className="next-quest empty-next">
+              <AsciiMonster state="normal" />
+
+              <div>
+                <p className="eyebrow">
+                  下一關
+                </p>
+
+                <h2>
+                  今天還沒有安排任務
+                </h2>
+
+                <p>
+                  告訴 Agent
+                  你想完成什麼，我們一起找出第一步。
+                </p>
+              </div>
+            </Card>
           )}
 
           <section className="add-task">
-            <button onClick={() => setComposerOpen((open) => !open)}>＋ 告訴 Agent 你想完成什麼</button>
-            {isComposerOpen && <div><textarea value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="例如：9/10 前完成統計報告，我星期三晚上沒空。" /><button onClick={createDraft}>交給 Agent →</button></div>}
+            <button
+              onClick={() =>
+                setComposerOpen(
+                  (open) =>
+                    !open,
+                )
+              }
+            >
+              ＋ 告訴 Agent
+              你想完成什麼
+            </button>
+
+            {isComposerOpen && (
+              <div>
+                <textarea
+                  value={goal}
+                  onChange={(
+                    event,
+                  ) =>
+                    setGoal(
+                      event.target
+                        .value,
+                    )
+                  }
+                  placeholder="例如：9/10 前完成統計報告，我星期三晚上沒空。"
+                />
+
+                <button
+                  onClick={
+                    createDraft
+                  }
+                >
+                  交給 Agent →
+                </button>
+              </div>
+            )}
           </section>
 
           <section className="today-grid">
             <Card className="calendar-grid">
-              <p className="eyebrow">今天的行事曆</p>
-              {todayItems.length ? todayItems.map(({ quest, subtask }) => <p className="event agent" key={subtask.id}><time>{time(subtask.scheduledAt)}</time><span><b>{subtask.title}</b><small>{quest.title} · {subtask.minutes} 分鐘</small></span></p>) : <p className="calendar-empty">今天暫時沒有 Agent 安排的工作階段。</p>}
+              <p className="eyebrow">
+                今天的行事曆
+              </p>
+
+              {todayItems.length ? (
+                todayItems.map(
+                  ({
+                    quest,
+                    subtask,
+                  }) => (
+                    <p
+                      className="event agent"
+                      key={
+                        subtask.id
+                      }
+                    >
+                      <time>
+                        {time(
+                          subtask.scheduledAt,
+                        )}
+                      </time>
+
+                      <span>
+                        <b>
+                          {
+                            subtask.title
+                          }
+                        </b>
+
+                        <small>
+                          {
+                            quest.title
+                          }{" "}
+                          ·{" "}
+                          {
+                            subtask.minutes
+                          }{" "}
+                          分鐘
+                        </small>
+                      </span>
+                    </p>
+                  ),
+                )
+              ) : (
+                <p className="calendar-empty">
+                  今天暫時沒有 Agent
+                  安排的工作階段。
+                </p>
+              )}
             </Card>
+
             <section className="quest-side">
-              <p className="eyebrow">目前 Quest 摘要</p>
-              {quests.slice(0, 2).map((quest) => <Card className="compact-quest" key={quest.id}><AsciiMonster state="normal" /><div><b>{quest.title}</b><div className="hp"><i style={{ width: `${quest.bossHp}%` }} /></div><small>{quest.bossHp} / 100 HP · 已完成 {quest.subtasks.filter((subtask) => subtask.status === "complete").length} / {quest.subtasks.length} · {statusLabel(quest.status)}</small></div></Card>)}
-              <button className="view-all" onClick={() => setView("quests")}>查看所有任務 →</button>
+              <p className="eyebrow">
+                目前 Quest 摘要
+              </p>
+
+              {quests
+                .slice(0, 2)
+                .map((quest) => (
+                  <Card
+                    className="compact-quest"
+                    key={quest.id}
+                  >
+                    <AsciiMonster state="normal" />
+
+                    <div>
+                      <b>
+                        {
+                          quest.title
+                        }
+                      </b>
+
+                      <div className="hp">
+                        <i
+                          style={{
+                            width: `${quest.bossHp}%`,
+                          }}
+                        />
+                      </div>
+
+                      <small>
+                        {
+                          quest.bossHp
+                        }{" "}
+                        / 100 HP ·
+                        已完成{" "}
+                        {
+                          quest.subtasks.filter(
+                            (
+                              subtask,
+                            ) =>
+                              subtask.status ===
+                              "complete",
+                          ).length
+                        }{" "}
+                        /{" "}
+                        {
+                          quest
+                            .subtasks
+                            .length
+                        }{" "}
+                        ·{" "}
+                        {statusLabel(
+                          quest.status,
+                        )}
+                      </small>
+                    </div>
+                  </Card>
+                ))}
+
+              <button
+                className="view-all"
+                onClick={() =>
+                  setView(
+                    "quests",
+                  )
+                }
+              >
+                查看所有任務 →
+              </button>
             </section>
           </section>
         </section>
       )}
 
-      {view === "quests" && <QuestsView quests={quests} onSelect={setSelectedQuest} onCreate={() => { setView("today"); setComposerOpen(true); }} onViewHistory={() => setView("history")} />}
-      {view === "calendar" && <CalendarView quests={quests} onSelect={setSelectedQuest} />}
-      {view === "history" && <HistoryView entries={activityHistory} defeatedBosses={defeatedBosses} onSelectBoss={(questId) => { const quest = quests.find((item) => item.id === questId); if (quest) setSelectedQuest(quest); }} />}
+      {view === "quests" && (
+        <QuestsView
+          quests={quests}
+          onSelect={
+            setSelectedQuest
+          }
+          onCreate={() => {
+            setView("today");
+            setComposerOpen(
+              true,
+            );
+          }}
+          onViewHistory={() =>
+            setView("history")
+          }
+        />
+      )}
+
+      {view ===
+        "calendar" && (
+        <CalendarView
+          quests={quests}
+          onSelect={
+            setSelectedQuest
+          }
+        />
+      )}
+
+      {view === "history" && (
+        <HistoryView
+          entries={
+            activityHistory
+          }
+          defeatedBosses={
+            defeatedBosses
+          }
+          onSelectBoss={(
+            questId,
+          ) => {
+            const quest =
+              quests.find(
+                (item) =>
+                  item.id ===
+                  questId,
+              );
+
+            if (quest) {
+              setSelectedQuest(
+                quest,
+              );
+            }
+          }}
+        />
+      )}
     </main>
   );
 }

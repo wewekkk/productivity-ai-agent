@@ -23,15 +23,21 @@ export async function GET() {
   const state = randomBytes(32).toString("hex");
 
   const params = new URLSearchParams({
-    client_id: clientId,
-    redirect_uri: redirectUri,
-    response_type: "code",
-    scope:
-      "https://www.googleapis.com/auth/calendar.events",
-    access_type: "offline",
-    prompt: "consent",
-    state,
-  });
+  client_id: clientId,
+  redirect_uri: redirectUri,
+  response_type: "code",
+
+  scope: [
+    "openid",
+    "email",
+    "profile",
+    "https://www.googleapis.com/auth/calendar.events",
+  ].join(" "),
+
+  access_type: "offline",
+  prompt: "consent",
+  state,
+});
 
   const response = NextResponse.redirect(
     `${GOOGLE_AUTH_URL}?${params.toString()}`,

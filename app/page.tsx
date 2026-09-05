@@ -34,6 +34,18 @@ import "./ascii-monster.css";
 type MainView = "today" | "quests" | "calendar" | "history";
 type ActiveSession = { quest: Quest; subtask: Subtask; minutes: number; mode?: FocusMode; initialMode?: FocusMode };
 
+type CurrentUser = {
+  id: string;
+  email: string;
+  name: string;
+  picture: string;
+};
+type UserProfile = {
+  level: number;
+  xp: number;
+  xpToNext: number;
+};
+
 const time = (value: string) =>
   new Intl.DateTimeFormat("zh-TW", {
     hour: "2-digit",
@@ -58,17 +70,183 @@ export default function Home() {
   const [recoveryPlan, setRecoveryPlan] = useState<(ActiveSession & { trigger: RecoveryTrigger }) | null>(null);
   const [activityHistory, setActivityHistory] = useState<ActivityEntry[]>([]);
   const [view, setView] = useState<MainView>("today");
+  const [currentUser, setCurrentUser] =
+  useState<CurrentUser | null>(null);
+
+  const [authLoading, setAuthLoading] =
+  useState(true);
+  const [profile, setProfile] =
+  useState<UserProfile>({
+    level: 1,
+    xp: 0,
+    xpToNext: 100,
+  });
 
   useEffect(() => {
-    const saved = localStorage.getItem("quest-agent-state");
-    if (!saved) return;
+  if (!currentUser) return;
+
+  const storageKey =
+    `quest-agent-history:${currentUser.id}`;
+
+  const saved =
+    localStorage.getItem(storageKey);
+
+  if (!saved) {
+    setActivityHistory([]);
+    return;
+  }
+
+  try {
     const parsed = JSON.parse(saved);
-    setQuests(Array.isArray(parsed) ? parsed : [parsed]);
-  }, []);
+
+    setActivityHistory(
+      Array.isArray(parsed)
+        ? parsed
+        : [],
+    );
+  } catch (error) {
+    console.error(
+      "讀取 History localStorage 失敗：",
+      error,
+    );
+
+    setActivityHistory([]);
+  }
+}, [currentUser]);
 
   useEffect(() => {
-    if (quests.length) localStorage.setItem("quest-agent-state", JSON.stringify(quests));
-  }, [quests]);
+  if (!currentUser) return;
+
+  const storageKey =
+    `quest-agent-history:${currentUser.id}`;
+
+  localStorage.setItem(
+    storageKey,
+    JSON.stringify(activityHistory),
+  );
+}, [activityHistory, currentUser]);
+
+  useEffect(() => {
+  if (!currentUser) return;
+
+  const storageKey =
+    `quest-agent-profile:${currentUser.id}`;
+
+  const saved =
+    localStorage.getItem(storageKey);
+
+  if (!saved) {
+    setProfile({
+      level: 1,
+      xp: 0,
+      xpToNext: 100,
+    });
+    return;
+  }
+
+  try {
+    const parsed =
+      JSON.parse(saved) as UserProfile;
+
+    setProfile(parsed);
+  } catch (error) {
+    console.error(
+      "讀取使用者 Profile 失敗：",
+      error,
+    );
+
+    setProfile({
+      level: 1,
+      xp: 0,
+      xpToNext: 100,
+    });
+  }
+}, [currentUser]);
+
+useEffect(() => {
+  if (!currentUser) return;
+
+  const storageKey =
+    `quest-agent-profile:${currentUser.id}`;
+
+  localStorage.setItem(
+    storageKey,
+    JSON.stringify(profile),
+  );
+}, [profile, currentUser]);
+
+
+
+  useEffect(() => {
+  const loadCurrentUser = async () => {
+    try {
+      const response = await fetch("/api/me");
+
+      const data = await response.json();
+
+      if (data.authenticated && data.user) {
+        setCurrentUser(data.user);
+      } else {
+        setCurrentUser(null);
+      }
+    } catch (error) {
+      console.error(
+        "讀取登入使用者失敗：",
+        error,
+      );
+
+      setCurrentUser(null);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  loadCurrentUser();
+}, []);
+
+  useEffect(() => {
+  if (!currentUser) return;
+
+  const storageKey =
+    `quest-agent-state:${currentUser.id}`;
+
+  const saved =
+    localStorage.getItem(storageKey);
+
+  if (!saved) {
+    setQuests([]);
+    return;
+  }
+
+  try {
+    const parsed = JSON.parse(saved);
+
+    setQuests(
+      Array.isArray(parsed)
+        ? parsed
+        : [parsed],
+    );
+  } catch (error) {
+    console.error(
+      "讀取 Quest localStorage 失敗：",
+      error,
+    );
+
+    setQuests([]);
+  }
+}, [currentUser]);
+
+useEffect(() => {
+  if (!currentUser) return;
+
+  const storageKey =
+    `quest-agent-state:${currentUser.id}`;
+
+  localStorage.setItem(
+    storageKey,
+    JSON.stringify(quests),
+  );
+}, [quests, currentUser]);
 
   const scheduled = useMemo(
     () =>
@@ -210,13 +388,79 @@ export default function Home() {
     setQuests((current) => current.map((quest) => quest.id === updatedQuest.id ? updatedQuest : quest));
     setSelectedQuest((current) => current?.id === updatedQuest.id ? updatedQuest : current);
     const hasNext = updatedQuest.subtasks.some((subtask) => subtask.status !== "complete");
-    recordActivity(updatedSession, "completed", { damage: session.subtask.damage, xp: session.quest.xp || 30 });
+    const earnedXp =
+  session.quest.xp || 30;
+
+setProfile((current) => {
+  let nextXp =
+    current.xp + earnedXp;
+
+  let nextLevel =
+    current.level;
+
+  let nextXpToNext =
+    current.xpToNext;
+
+  while (nextXp >= nextXpToNext) {
+    nextXp -= nextXpToNext;
+    nextLevel += 1;
+    nextXpToNext += 100;
+  }
+
+  return {
+    level: nextLevel,
+    xp: nextXp,
+    xpToNext: nextXpToNext,
+  };
+});
+    recordActivity(updatedSession, "completed", {
+  damage: session.subtask.damage,
+  xp: earnedXp,
+});
     if (hasNext) setCompleteResult(updatedSession);
     else {
       recordActivity(updatedSession, "boss_defeated", { xp: session.quest.xp || 120, agentAction: "已完成所有工作階段" });
       setBossDefeated({ quest: updatedQuest, completion: { isQuestComplete: true, remainingHp: 0, xpEarned: session.quest.xp || 120 } });
     }
   };
+
+  if (authLoading) {
+  return (
+    <main className="today-shell">
+      <section className="today-page">
+        <Card>
+          <h2>Quest Agent</h2>
+          <p>正在確認登入狀態...</p>
+        </Card>
+      </section>
+    </main>
+  );
+}
+
+  if (!currentUser) {
+  return (
+    <main className="today-shell">
+      <section className="today-page">
+        <Card>
+          <h1>Quest Agent</h1>
+
+          <p>
+            把待辦事項，變成一場可以完成的 Quest。
+          </p>
+
+          <button
+            onClick={() => {
+              window.location.href =
+                "/api/auth/google";
+            }}
+          >
+            使用 Google 繼續
+          </button>
+        </Card>
+      </section>
+    </main>
+  );
+}
 
   if (draft) {
   return (
@@ -269,7 +513,47 @@ export default function Home() {
           <button className={view === "calendar" ? "nav-active" : ""} onClick={() => setView("calendar")}>行事曆</button>
           <button className={view === "history" ? "nav-active" : ""} onClick={() => setView("history")}>紀錄</button>
         </div>
-        <span>Lv. 3<strong>420 / 600 XP</strong></span>
+        <div
+  style={{
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+  }}
+>
+  <span>
+  Lv. {profile.level}
+  <strong>
+    {profile.xp} / {profile.xpToNext} XP
+  </strong>
+</span>
+
+  {currentUser.picture && (
+    <img
+      src={currentUser.picture}
+      alt={currentUser.name || "Google 使用者"}
+      width={36}
+      height={36}
+      style={{
+        borderRadius: "50%",
+        objectFit: "cover",
+      }}
+    />
+  )}
+
+  <button
+    onClick={async () => {
+      await fetch("/api/logout", {
+        method: "POST",
+      });
+
+      setCurrentUser(null);
+
+      window.location.href = "/";
+    }}
+  >
+    登出
+  </button>
+</div>
       </nav>
 
       {view === "today" && (

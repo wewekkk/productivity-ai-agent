@@ -5,10 +5,18 @@ type GoogleTokenResponse = {
   access_token?: string;
   expires_in?: number;
   refresh_token?: string;
+  id_token?: string;
   scope?: string;
   token_type?: string;
   error?: string;
   error_description?: string;
+};
+
+type GoogleUserInfo = {
+  sub: string;
+  email?: string;
+  name?: string;
+  picture?: string;
 };
 
 export async function GET(request: Request) {
@@ -129,6 +137,40 @@ export async function GET(request: Request) {
       );
     }
 
+    const userInfoResponse = await fetch(
+  "https://openidconnect.googleapis.com/v1/userinfo",
+  {
+        headers: {
+      Authorization: `Bearer ${tokens.access_token}`,
+    },
+  },
+);
+
+    if (!userInfoResponse.ok) {
+      return NextResponse.json(
+    {
+      error: "無法取得 Google 使用者資料",
+    },
+    {
+      status: 500,
+    },
+  );
+}
+
+    const googleUser =
+  (await userInfoResponse.json()) as GoogleUserInfo;
+
+    if (!googleUser.sub) {
+      return NextResponse.json(
+    {
+      error: "Google 使用者資料缺少 sub",
+    },
+    {
+      status: 500,
+    },
+  );
+}
+
     const response = NextResponse.redirect(
       new URL(
         "/?googleCalendar=connected",
@@ -153,6 +195,25 @@ export async function GET(request: Request) {
         maxAge: tokens.expires_in ?? 3600,
       },
     );
+
+    response.cookies.set(
+  "quest_user",
+  JSON.stringify({
+    id: googleUser.sub,
+    email: googleUser.email ?? "",
+    name: googleUser.name ?? "",
+    picture: googleUser.picture ?? "",
+  }),
+  {
+    httpOnly: true,
+    sameSite: "lax",
+    secure:
+      process.env.NODE_ENV ===
+      "production",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 30,
+  },
+);
 
     if (tokens.refresh_token) {
       response.cookies.set(

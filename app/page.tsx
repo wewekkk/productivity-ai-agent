@@ -728,15 +728,78 @@ export default function Home() {
   if (draft) {
     return (
       <PlanPreview
-        quest={draft}
-        onBack={() => {
-          setDraft(null);
-          setView("today");
-        }}
-        onConfirm={
-          confirmDraftAndSync
-        }
-      />
+  quest={draft}
+  onBack={() => {
+    setDraft(null);
+    setView("today");
+  }}
+  onConfirm={confirmDraftAndSync}
+  onReplan={(pace) => {
+    setDraft((current) => {
+      if (!current) return current;
+
+      const factor =
+        pace === "gentle"
+          ? 0.7
+          : 1.2;
+
+      const subtasks =
+        current.subtasks.map(
+          (subtask) => {
+            const minutes =
+              Math.max(
+                15,
+                Math.min(
+                  90,
+                  Math.round(
+                    subtask.minutes *
+                      factor,
+                  ),
+                ),
+              );
+
+            return {
+              ...subtask,
+              minutes,
+            };
+          },
+        );
+
+      const events =
+        current.events.map(
+          (event, index) => {
+            const subtask =
+              subtasks[index];
+
+            if (!subtask) {
+              return event;
+            }
+
+            return {
+              ...event,
+              end: new Date(
+                new Date(
+                  event.start,
+                ).getTime() +
+                  subtask.minutes *
+                    60_000,
+              ).toISOString(),
+            };
+          },
+        );
+
+      return {
+        ...current,
+        subtasks,
+        events,
+        lastSignal:
+          pace === "gentle"
+            ? "已降低每個工作階段的負擔。"
+            : "已提高每個工作階段的集中度。",
+      };
+    });
+  }}
+/>
     );
   }
 

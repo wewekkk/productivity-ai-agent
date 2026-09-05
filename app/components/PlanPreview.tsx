@@ -17,16 +17,44 @@ export type PlanAdjustmentRequest = {
   pace: "gentle" | "normal" | "focused";
 };
 
-export function PlanPreview({ quest, onBack, onConfirm, onAdjustment }: { quest: Quest; onBack: () => void; onConfirm: () => void; onAdjustment?: (request: PlanAdjustmentRequest) => void }) {
+export function PlanPreview({
+  quest,
+  onBack,
+  onConfirm,
+  onAdjustment,
+  onReplan,
+}: {
+  quest: Quest;
+  onBack: () => void;
+  onConfirm: () => void;
+  onAdjustment?: (
+    request: PlanAdjustmentRequest,
+  ) => void;
+  onReplan?: (
+    pace: "gentle" | "focused",
+  ) => void;
+})  {
   const constraints = quest.constraints.length ? quest.constraints : ["這個任務適合拆成多個階段。", "Agent 已保留休息時間與緩衝。"];
   const [isAdjustmentOpen, setAdjustmentOpen] = useState(false);
   const [adjustment, setAdjustment] = useState<PlanAdjustmentRequest>({ maxMinutesToday: "", avoidAfter: "", unavailable: "", pace: "normal" });
   const [pendingMessage, setPendingMessage] = useState("");
 
-  const requestReplan = (pace: "gentle" | "focused") => {
-    setAdjustment((current) => ({ ...current, pace }));
-    setPendingMessage(pace === "gentle" ? "已記下「再輕鬆一點」的偏好，等待 Agent 重新規劃串接。" : "已記下「再集中一點」的偏好，等待 Agent 重新規劃串接。");
-  };
+  const requestReplan = (
+  pace: "gentle" | "focused",
+) => {
+  setAdjustment((current) => ({
+    ...current,
+    pace,
+  }));
+
+  onReplan?.(pace);
+
+  setPendingMessage(
+    pace === "gentle"
+      ? "Agent 已把工作階段調整得更輕鬆。"
+      : "Agent 已把工作階段調整得更集中。",
+  );
+};
   const saveAdjustment = () => {
     onAdjustment?.(adjustment);
     setAdjustmentOpen(false);

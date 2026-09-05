@@ -64,6 +64,62 @@ export default function Home() {
     setView("preview");
   }
 };
+
+  const confirmAndSync = async () => {
+  if (!quest) return;
+
+  try {
+    const response = await fetch("/api/calendar/sync", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        events: quest.events,
+      }),
+    });
+
+    if (response.status === 401) {
+      window.location.href = "/api/auth/google";
+      return;
+    }
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.error ?? "Google Calendar 寫入失敗",
+      );
+    }
+
+    updateQuest(quest.id, (q) => {
+      const confirmed = confirmPlan(q);
+
+      return {
+        ...confirmed,
+        events: data.events ?? confirmed.events,
+        activity: [
+          ...confirmed.activity,
+          "已同步至 Google Calendar",
+        ],
+        lastSignal:
+          "排程已確認並寫入 Google Calendar。",
+      };
+    });
+
+    nav("today");
+  } catch (error) {
+    console.error(
+      "Google Calendar 同步失敗：",
+      error,
+    );
+
+    alert(
+      "Google Calendar 同步失敗，請稍後再試。",
+    );
+  }
+};
+
   const nextTask = (q = quest): Subtask | undefined => q?.subtasks.find((s) => ["planned", "in_progress", "partial"].includes(s.status));
   const begin = (id: string) => { update((q) => reportSession(q, id, "start")); setSessionId(id); setView("focus"); };
   const isToday = (value: string) => { const date = new Date(value), now = new Date(); return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate(); };
@@ -78,7 +134,9 @@ export default function Home() {
   return <main>
     <nav><button className="brand" onClick={() => nav("today")}>Quest Agent</button><div><button className={view === "today" ? "active" : ""} onClick={() => nav("today")}>今天</button><button className={view === "quests" || view === "detail" ? "active" : ""} onClick={() => nav("quests")}>任務</button><button className={view === "calendar" ? "active" : ""} onClick={() => nav("calendar")}>行事曆</button></div><aside><button className="new-task" onClick={() => { nav("today"); setOpenInput(true); }}>＋ 新增任務</button><span>Lv. {quest?.level ?? 3}<b>{quest?.xp ?? 0} / 600 XP</b></span></aside></nav>
     {view === "today" && <section className="page today"><header><p>早安 ☀️</p><h1>慢慢來，我們先處理下一件。</h1><span>今天有 {todayItems.length} 個適合完成的工作階段。</span></header>{openInput ? <section className="add"><textarea autoFocus value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="例如：9/10 前完成統計報告，我星期三晚上沒空。"/><div><button className="secondary" onClick={() => setOpenInput(false)}>取消</button><button onClick={add}>交給 Agent →</button></div></section> : <button className="add-trigger" onClick={() => setOpenInput(true)}>＋ 告訴 Agent 你想做什麼</button>}{todayNext ? <section className="next card"><div><p className="label">下一個任務</p><h2>{todayNext.quest.title}</h2><span className="pill">{todayNext.quest.type === "complex_quest" ? "Boss Quest" : "小任務"} · {todayNext.quest.status}</span><div className="hp"><i style={{ width: `${todayNext.quest.bossHp}%` }}/></div><b>{todayNext.quest.bossHp} / 100 HP</b><h3>{todayNext.task.title}</h3><p>{fmt(todayNext.task.scheduledAt)} · {todayNext.task.minutes} 分鐘 · {todayNext.task.damage} Damage</p><button onClick={() => beginToday(todayNext)}>開始這一關</button><button className="secondary" onClick={() => beginToday(todayNext)}>先做 3 分鐘</button><small>{todayNext.quest.constraints[0] ?? "Agent 已保留緩衝時間，讓你不必趕工。"}</small></div><pre className="ascii-monster">{todayNext.quest.type === "complex_quest" ? boss : smallMonster}</pre></section> : <section className="card empty">目前沒有已確認的工作階段。先告訴 Agent 你的目標吧。</section>}<section className="calendar-mini card"><h2>今天</h2>{todayItems.map((item) => <p key={item.task.id}><time>{fmt(item.task.scheduledAt)}</time><b>{item.task.title}<small> · {item.quest.title}</small></b></p>)}{todayItems.length === 0 && <p>今天沒有 Agent 排程。</p>}<button className="text" onClick={() => nav("calendar")}>查看完整行事曆 →</button></section></section>}
-    {view === "preview" && quest && <section className="page preview"><button className="text" onClick={() => nav("today")}>← 返回</button><div className="preview-grid"><article><p className="label">排程預覽</p><h1>{quest.title}</h1><p>截止時間：{fmt(quest.deadline)}</p><pre className="ascii-monster">{isBoss ? boss : smallMonster}</pre><h2>Agent 理解到：</h2><ul>{quest.constraints.length ? quest.constraints.map((x) => <li key={x}>{x}</li>) : <li>這個目標需要安排專注時段與緩衝。</li>}<li>{routeGoal(quest.source).reason}</li></ul><h2>任務拆解</h2>{quest.subtasks.map((s, i) => <div className="breakdown" key={s.id}><b>{i + 1}. {s.title}</b><span>{fmt(s.scheduledAt)} · {s.minutes} 分鐘 · {s.damage} DMG</span></div>)}<div className="routes"><div><b>理想完成</b><strong>{fmt(quest.safeFinish)}</strong><span>這是實際排入 Calendar 的路線。</span></div><div><b>安全備用線</b><strong>{fmt(quest.criticalDeadline)}</strong><span>延誤時 Agent 才會啟用，不會直接寫入 Calendar。</span></div></div><footer><button onClick={() => { update(confirmPlan); nav("today"); }}>確認這個排程</button><button className="secondary" onClick={() => update((q) => ({ ...q, lastSignal: "Agent 已記下：請讓這個計畫更輕鬆。" }))}>再輕鬆一點</button><button className="secondary" onClick={() => update((q) => ({ ...q, lastSignal: "Agent 已記下：請讓工作階段更集中。" }))}>再集中一點</button></footer></article><aside className="calendar-preview"><h2>排程放在哪裡？</h2>{quest.events.map((e) => <div key={e.id}><time>{fmt(e.start)}</time><b>{e.title}</b><span>{Math.round((new Date(e.end).getTime()-new Date(e.start).getTime())/60000)} 分鐘</span></div>)}</aside></div></section>}
+    {view === "preview" && quest && <section className="page preview"><button className="text" onClick={() => nav("today")}>← 返回</button><div className="preview-grid"><article><p className="label">排程預覽</p><h1>{quest.title}</h1><p>截止時間：{fmt(quest.deadline)}</p><pre className="ascii-monster">{isBoss ? boss : smallMonster}</pre><h2>Agent 理解到：</h2><ul>{quest.constraints.length ? quest.constraints.map((x) => <li key={x}>{x}</li>) : <li>這個目標需要安排專注時段與緩衝。</li>}<li>{routeGoal(quest.source).reason}</li></ul><h2>任務拆解</h2>{quest.subtasks.map((s, i) => <div className="breakdown" key={s.id}><b>{i + 1}. {s.title}</b><span>{fmt(s.scheduledAt)} · {s.minutes} 分鐘 · {s.damage} DMG</span></div>)}<div className="routes"><div><b>理想完成</b><strong>{fmt(quest.safeFinish)}</strong><span>這是實際排入 Calendar 的路線。</span></div><div><b>安全備用線</b><strong>{fmt(quest.criticalDeadline)}</strong><span>延誤時 Agent 才會啟用，不會直接寫入 Calendar。</span></div></div><footer><button onClick={confirmAndSync}>
+  確認這個排程
+</button><button className="secondary" onClick={() => update((q) => ({ ...q, lastSignal: "Agent 已記下：請讓這個計畫更輕鬆。" }))}>再輕鬆一點</button><button className="secondary" onClick={() => update((q) => ({ ...q, lastSignal: "Agent 已記下：請讓工作階段更集中。" }))}>再集中一點</button></footer></article><aside className="calendar-preview"><h2>排程放在哪裡？</h2>{quest.events.map((e) => <div key={e.id}><time>{fmt(e.start)}</time><b>{e.title}</b><span>{Math.round((new Date(e.end).getTime()-new Date(e.start).getTime())/60000)} 分鐘</span></div>)}</aside></div></section>}
     {view === "quests" && <section className="page"><header><p>我的任務</p><h1>進行中的 Quest</h1></header><div className="quest-list">{quests.map((q) => <button className="quest-card" key={q.id} onClick={() => { setActiveId(q.id); nav(q.planState === "preview" ? "preview" : "detail"); }}><pre className="ascii-monster card-monster">{q.type === "complex_quest" ? boss : smallMonster}</pre><span>{q.type === "complex_quest" ? "Boss Quest" : "小任務"}</span><h2>{q.title}</h2><div className="hp"><i style={{ width: `${q.bossHp}%` }}/></div><b>{q.bossHp}/100 HP · {q.status}</b></button>)}</div></section>}
     {view === "calendar" && <section className="page"><header><p>行事曆</p><h1>Agent 安排的工作時段</h1><span>暖橘色區塊代表 Agent Session；安全備用線不會顯示在這裡。</span></header><section className="week card">{(quest?.events ?? []).map((e) => <div key={e.id}><time>{fmt(e.start)}</time><b>{e.title}</b><span>Agent Session</span></div>)}</section></section>}
     {view === "detail" && quest && <section className="page detail"><button className="text" onClick={() => nav("quests")}>← 任務</button><section className="detail-head card"><pre className="ascii-monster">{isBoss ? boss : smallMonster}</pre><div><p className="label">{isBoss ? "Boss Quest" : "小任務"}</p><h1>{quest.title}</h1><div className="hp"><i style={{ width: `${quest.bossHp}%` }}/></div><b>{quest.bossHp} / 100 HP · {quest.status}</b><p>Deadline {fmt(quest.deadline)}　理想完成 {fmt(quest.safeFinish)}　緩衝 {quest.bufferHours} 小時</p></div></section>{nextTask() && <section className="next card"><div><p className="label">下一個工作階段</p><h2>{nextTask()!.title}</h2><p>{fmt(nextTask()!.scheduledAt)} · {nextTask()!.minutes} 分鐘 · {nextTask()!.damage} Damage</p><button onClick={() => begin(nextTask()!.id)}>開始</button></div></section>}<section className="card"><h2>後續 Session</h2>{quest.subtasks.filter((s) => s.id !== nextTask()?.id).map((s, i) => <p className="line" key={s.id}>{i + 2}. <b>{s.title}</b><span>{fmt(s.scheduledAt)} · {s.minutes} 分鐘</span></p>)}</section><section className="why card"><h2>Agent 為什麼這樣安排？</h2><p>{quest.constraints[0] ?? "我把需要專注的內容分散到不同時段，並保留緩衝。"}</p><p>如果前面的 Session 延誤，我會重新計算後面的安排。</p></section></section>}
